@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { format, parseISO, startOfWeek, addDays, eachDayOfInterval, isSameDay, isToday, addWeeks, subWeeks, getHours, getMinutes, differenceInMinutes, areIntervalsOverlapping, max, min } from 'date-fns';
+import { format, parseISO, startOfWeek, addDays, eachDayOfInterval, isSameDay, isToday, addWeeks, subWeeks, getHours, getMinutes, differenceInMinutes, areIntervalsOverlapping, endOfWeek } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import type { Task, Course, Group } from '@/lib/types';
@@ -198,7 +198,7 @@ export default function CalendarPage() {
 
   const getEventsForDay = (day: Date) => {
     const gCalTimed = calendarEvents.filter(event => !event.isAllDay && isSameDay(parseISO(event.start.dateTime), day));
-    const gCalAllDay = calendarEvents.filter(event => event.isAllDay && isSameDay(parseISO(event.start.date), day));
+    const gCalAllDay = calendarEvents.filter(event => event.isAllDay && (isSameDay(parseISO(event.start.date), day) || (parseISO(event.start.date) < day && parseISO(event.end.date) > day)));
     return { gCalTimed, gCalAllDay };
   };
 
@@ -348,7 +348,7 @@ export default function CalendarPage() {
              </div>
            ) : (
              <div className="flex-1 flex flex-col">
-              <div className="grid grid-cols-[auto,1fr] sticky top-16 bg-background z-20">
+              <div className="grid grid-cols-[auto,1fr] sticky top-0 bg-background z-20">
                 <div className="w-14"></div>
                 <div className="grid grid-cols-7 border-l">
                   {weekDays.map(day => (
@@ -361,10 +361,10 @@ export default function CalendarPage() {
               </div>
 
               {/* All day section */}
-              <div className="grid grid-cols-[auto,1fr] sticky top-[125px] bg-background z-20">
-                  <div className="w-14 text-center text-xs py-1.5 text-muted-foreground">Todo el día</div>
-                  <div className="grid grid-cols-7 border-l">
-                      {weekDays.map((day, dayIndex) => (
+              <div className="grid grid-cols-[auto,1fr] bg-background z-10">
+                  <div className="w-14 text-center text-xs py-1.5 text-muted-foreground border-t">Todo el día</div>
+                  <div className="grid grid-cols-7 border-l border-t">
+                      {weekDays.map((day) => (
                           <div key={`allday-${day.toString()}`} className="border-r border-b p-1 min-h-[34px] space-y-1">
                               {(() => {
                                   const { gCalAllDay } = getEventsForDay(day);
@@ -414,7 +414,7 @@ export default function CalendarPage() {
                                 target="_blank" 
                                 rel="noopener noreferrer" 
                                 key={event.id}
-                                className="absolute px-1"
+                                className="absolute p-0.5"
                                 style={{ 
                                   top: `${event.top}rem`, 
                                   height: `${event.height}rem`,
@@ -423,7 +423,7 @@ export default function CalendarPage() {
                                 }}
                               >
                                  <div 
-                                  className="h-full w-full rounded-md p-2 text-black/80 overflow-hidden" 
+                                  className="h-full w-full rounded-md p-1 text-black/80 overflow-hidden" 
                                   style={{ backgroundColor: event.linkedCourseColor || event.color || '#3174ad' }}
                                 >
                                   <p className="text-xs font-bold">{event.summary}</p>
