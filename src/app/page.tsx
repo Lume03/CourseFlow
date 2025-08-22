@@ -14,7 +14,7 @@ import { Loader2 } from 'lucide-react';
 import { findOrCreateDataFile, readDataFile, writeDataFile } from '@/lib/drive';
 
 export default function Home() {
-  const { user, accessToken, loading, signIn } = useAuth();
+  const { user, accessToken, loading: authLoading, signIn } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -29,13 +29,12 @@ export default function Home() {
     setIsClient(true);
   }, []);
 
-  const loadDataFromDrive = useCallback(async () => {
-    if (!accessToken) return;
+  const loadDataFromDrive = useCallback(async (token: string) => {
     setIsDataLoading(true);
     try {
-      const fileId = await findOrCreateDataFile(accessToken);
+      const fileId = await findOrCreateDataFile(token);
       setDataFileId(fileId);
-      const data = await readDataFile(accessToken, fileId);
+      const data = await readDataFile(token, fileId);
       if (data) {
         setTasks(data.tasks.map(t => ({ ...t, dueDate: t.dueDate ? new Date(t.dueDate) : undefined })));
         setCourses(data.courses);
@@ -54,13 +53,16 @@ export default function Home() {
     } finally {
         setIsDataLoading(false);
     }
-  }, [accessToken]);
+  }, []);
   
   useEffect(() => {
     if (user && accessToken) {
-      loadDataFromDrive();
+      loadDataFromDrive(accessToken);
+    } else if (!authLoading && !user) {
+      // If not logged in and not in the process of logging in, stop loading.
+      setIsDataLoading(false);
     }
-  }, [user, accessToken, loadDataFromDrive]);
+  }, [user, accessToken, authLoading, loadDataFromDrive]);
 
   const saveDataToDrive = useCallback(async (data: AppData) => {
     if (!dataFileId || !accessToken) return;
@@ -211,7 +213,7 @@ export default function Home() {
     }
   }, [processedTasks, filter, courses]);
 
-  if (loading || (user && isDataLoading)) {
+  if (authLoading || isDataLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -267,3 +269,5 @@ export default function Home() {
     </div>
   );
 }
+
+    
