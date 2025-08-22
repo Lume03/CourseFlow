@@ -1,7 +1,11 @@
+
+'use server';
+
 import { authOptions } from '@/pages/api/auth/[...nextauth]';
 import { google } from 'googleapis';
 import { getServerSession } from 'next-auth';
 import type { AppData } from './types';
+import { initialCourses, initialGroups, initialTasks } from './data';
 
 const FILE_NAME = 'courseflow-data.json';
 const FILE_MIME_TYPE = 'application/json';
@@ -21,25 +25,26 @@ async function getDriveClient() {
 export async function findOrCreateDataFile() {
   const drive = await getDriveClient();
   
-  // Search for the file
+  // Search for the file in the appDataFolder
   const res = await drive.files.list({
     q: `name='${FILE_NAME}' and mimeType='${FILE_MIME_TYPE}' and 'appDataFolder' in parents`,
-    fields: 'files(id)',
+    fields: 'files(id, name)',
     spaces: 'appDataFolder',
   });
 
-  if (res.data.files && res.data.files.length > 0) {
-    return res.data.files[0].id!;
+  const existingFile = res.data.files?.[0];
+
+  if (existingFile?.id) {
+    return existingFile.id;
   } else {
     // Create the file in the appDataFolder
     const fileMetadata = {
       name: FILE_NAME,
       parents: ['appDataFolder'],
-      mimeType: FILE_MIME_TYPE,
     };
     const media = {
       mimeType: FILE_MIME_TYPE,
-      body: JSON.stringify({ tasks: [], courses: [], groups: [] } as AppData),
+      body: JSON.stringify({ tasks: initialTasks, courses: initialCourses, groups: initialGroups } as AppData),
     };
     const file = await drive.files.create({
       requestBody: fileMetadata,
