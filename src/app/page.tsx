@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
@@ -39,39 +40,53 @@ export default function Home() {
   };
   
   useEffect(() => {
+    // This effect handles the entire data loading flow.
     const loadData = async () => {
-      if (authLoading) return;
-  
-      if (user && accessToken) {
-        setIsDataLoading(true);
-        setDriveError(null);
-        try {
-          const fileId = await findOrCreateDataFile(accessToken);
-          setDataFileId(fileId);
-          const data = await readDataFile(accessToken, fileId);
-          if (data && data.tasks && data.courses && data.groups) {
-             setTasks(data.tasks.map(t => ({ ...t, dueDate: t.dueDate ? new Date(t.dueDate) : undefined })));
-             setCourses(data.courses);
-             setGroups(data.groups);
-          } else {
-            const initialData = { tasks: initialTasks, courses: initialCourses, groups: initialGroups };
-            setTasks(initialData.tasks);
-            setCourses(initialData.courses);
-            setGroups(initialData.groups);
-            if (fileId) {
-              await writeDataFile(accessToken, fileId, initialData);
-            }
-          }
-        } catch (error) {
-          console.error("Error loading data from Drive:", error);
-          setDriveError("No se pudieron cargar los datos de Google Drive. Usando datos de ejemplo. Por favor, recarga la página.");
-          loadInitialLocalData();
-        } finally {
-            setIsDataLoading(false);
-        }
-      } else if (!user) {
-        // Not logged in, load local data and stop loading indicator
+      // Don't do anything until Firebase auth is resolved.
+      if (authLoading) {
+        return;
+      }
+      
+      // If there's no user, load local data and finish.
+      if (!user) {
         loadInitialLocalData();
+        setIsDataLoading(false);
+        return;
+      }
+
+      // If there IS a user but NO access token yet, wait.
+      // This happens on page refresh.
+      if (!accessToken) {
+        return;
+      }
+
+      // Start the data loading process.
+      setIsDataLoading(true);
+      setDriveError(null);
+
+      try {
+        const fileId = await findOrCreateDataFile(accessToken);
+        setDataFileId(fileId); // Important: store the fileId for saving later
+        const data = await readDataFile(accessToken, fileId);
+        
+        if (data && data.tasks && data.courses && data.groups) {
+           setTasks(data.tasks.map(t => ({ ...t, dueDate: t.dueDate ? new Date(t.dueDate) : undefined })));
+           setCourses(data.courses);
+           setGroups(data.groups);
+        } else {
+          // File might be new or empty, so set initial data and save it.
+          const initialData = { tasks: initialTasks, courses: initialCourses, groups: initialGroups };
+          setTasks(initialData.tasks);
+          setCourses(initialData.courses);
+          setGroups(initialData.groups);
+          await writeDataFile(accessToken, fileId, initialData);
+        }
+      } catch (error) {
+        console.error("Error during data loading flow:", error);
+        setDriveError("No se pudieron cargar los datos de Google Drive. Usando datos de ejemplo. Por favor, recarga la página.");
+        loadInitialLocalData();
+      } finally {
+        // This is crucial: always stop loading, regardless of success or failure.
         setIsDataLoading(false);
       }
     };
@@ -81,7 +96,10 @@ export default function Home() {
 
 
   const saveDataToDrive = useCallback(async (data: AppData) => {
-    if (!dataFileId || !accessToken) return;
+    if (!dataFileId || !accessToken) {
+        console.warn("Attempted to save without dataFileId or accessToken.");
+        return;
+    }
     
     setIsSaving(true);
     setDriveError(null);
@@ -91,7 +109,6 @@ export default function Home() {
       console.error("Error saving data to Drive:", error);
        setDriveError("No se pudieron guardar los cambios en Google Drive.");
     } finally {
-      // Add a small delay to show the saving indicator
       setTimeout(() => setIsSaving(false), 500);
     }
   }, [dataFileId, accessToken]);
@@ -316,3 +333,5 @@ export default function Home() {
     </div>
   );
 }
+
+    
