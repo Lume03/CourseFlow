@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -41,7 +41,8 @@ const formSchema = z.object({
   title: z.string().min(1, 'El título es obligatorio.'),
   description: z.string().optional(),
   dueDate: z.date().optional(),
-  owner: z.string().min(1, 'Debes seleccionar un curso o grupo.'),
+  groupId: z.string().min(1, 'Debes seleccionar un grupo.'),
+  courseId: z.string().min(1, 'Debes seleccionar un curso.'),
 });
 
 interface AddTaskDialogProps {
@@ -61,13 +62,16 @@ export function AddTaskDialog({ onAddTask, courses, groups }: AddTaskDialogProps
     defaultValues: {
       title: '',
       description: '',
+      groupId: '',
+      courseId: '',
     },
   });
 
-  const owners = [
-    { label: 'Cursos', options: courses },
-    { label: 'Grupos', options: groups },
-  ];
+  const selectedGroupId = form.watch('groupId');
+
+  const availableCourses = useMemo(() => {
+    return courses.filter(course => course.groupId === selectedGroupId);
+  }, [courses, selectedGroupId]);
 
   const handleEstimate = async () => {
     const description = form.getValues('description');
@@ -101,12 +105,10 @@ export function AddTaskDialog({ onAddTask, courses, groups }: AddTaskDialogProps
   };
 
   function onSubmit(values: z.infer<typeof formSchema>) {
-    const [ownerType, ownerId] = values.owner.split(':');
-    const ownerList = ownerType === 'course' ? courses : groups;
-    const ownerDetails = ownerList.find(o => o.id === ownerId);
+    const selectedCourse = courses.find(c => c.id === values.courseId);
 
-    if (!ownerDetails) {
-        toast({ variant: 'destructive', title: 'Error', description: 'Curso o grupo no válido.'});
+    if (!selectedCourse) {
+        toast({ variant: 'destructive', title: 'Error', description: 'Curso no válido.'});
         return;
     }
 
@@ -114,13 +116,18 @@ export function AddTaskDialog({ onAddTask, courses, groups }: AddTaskDialogProps
       title: values.title,
       description: values.description,
       dueDate: values.dueDate,
-      ownerId: ownerDetails.id,
-      ownerType: ownerType as 'course' | 'group',
-      color: ownerDetails.color,
+      courseId: selectedCourse.id,
+      color: selectedCourse.color,
     });
 
     form.reset();
     setOpen(false);
+  }
+  
+  // Reset courseId when groupId changes
+  const handleGroupChange = (groupId: string) => {
+    form.setValue('groupId', groupId);
+    form.resetField('courseId');
   }
 
   return (
@@ -184,78 +191,99 @@ export function AddTaskDialog({ onAddTask, courses, groups }: AddTaskDialogProps
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4">
                <FormField
-                control={form.control}
-                name="dueDate"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Fecha Límite</FormLabel>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant={'outline'}
-                            className={cn(
-                              'w-full pl-3 text-left font-normal',
-                              !field.value && 'text-muted-foreground'
-                            )}
-                          >
-                            {field.value ? (
-                              format(field.value, 'PPP', { locale: es })
-                            ) : (
-                              <span>Elige una fecha</span>
-                            )}
-                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={field.value}
-                          onSelect={field.onChange}
-                          disabled={(date) => date < new Date(new Date().setDate(new Date().getDate() - 1))}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                  control={form.control}
+                  name="dueDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Fecha Límite</FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant={'outline'}
+                              className={cn(
+                                'w-full pl-3 text-left font-normal',
+                                !field.value && 'text-muted-foreground'
+                              )}
+                            >
+                              {field.value ? (
+                                format(field.value, 'PPP', { locale: es })
+                              ) : (
+                                <span>Elige una fecha</span>
+                              )}
+                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={field.value}
+                            onSelect={field.onChange}
+                            disabled={(date) => date < new Date(new Date().setDate(new Date().getDate() - 1))}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <FormField
-                control={form.control}
-                name="owner"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Curso/Grupo</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecciona..." />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {owners.map(ownerGroup => (
-                            <div key={ownerGroup.label}>
-                                <Label className="px-2 py-1.5 text-sm font-semibold text-muted-foreground">{ownerGroup.label}</Label>
-                                {ownerGroup.options.map(option => (
-                                    <SelectItem key={`${ownerGroup.label === 'Cursos' ? 'course' : 'group'}:${option.id}`} value={`${ownerGroup.label === 'Cursos' ? 'course' : 'group'}:${option.id}`}>
-                                        <div className="flex items-center">
-                                            <span className="h-2 w-2 rounded-full mr-2" style={{ backgroundColor: option.color }}></span>
-                                            {option.name}
-                                        </div>
-                                    </SelectItem>
-                                ))}
-                            </div>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                  control={form.control}
+                  name="groupId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Grupo</FormLabel>
+                      <Select onValueChange={handleGroupChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecciona..." />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {groups.map(group => (
+                            <SelectItem key={group.id} value={group.id}>
+                              {group.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="courseId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Curso</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value} disabled={!selectedGroupId}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={!selectedGroupId ? "Elige un grupo" : "Selecciona..."} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                           {availableCourses.map(course => (
+                              <SelectItem key={course.id} value={course.id}>
+                                  <div className="flex items-center">
+                                      <span className="h-2 w-2 rounded-full mr-2" style={{ backgroundColor: course.color }}></span>
+                                      {course.name}
+                                  </div>
+                              </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
             </div>
             
             <DialogFooter>

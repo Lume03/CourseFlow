@@ -7,20 +7,19 @@ export interface Task {
   dueDate?: Date;
   color: string;
   status: TaskStatus;
-  ownerId: string;
-  ownerType: 'course' | 'group';
+  courseId: string;
 }
 
 export interface Course {
   id: string;
   name: string;
   color: string;
+  groupId: string;
 }
 
 export interface Group {
     id: string;
     name: string;
-    color: string;
 }
 
 export type FilterType = 'this-week' | 'this-month' | 'all';
