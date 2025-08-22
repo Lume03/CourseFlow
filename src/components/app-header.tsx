@@ -1,6 +1,7 @@
 import type { FilterType, Course, Group, Task } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { AddTaskDialog } from './add-task-dialog';
+import { ManageDataSheet } from './manage-data-sheet';
 
 interface AppHeaderProps {
   filter: FilterType;
@@ -8,9 +9,23 @@ interface AppHeaderProps {
   onAddTask: (newTask: Omit<Task, 'id' | 'status'>) => void;
   courses: Course[];
   groups: Group[];
+  onAddGroup: (name: string) => void;
+  onDeleteGroup: (id: string) => void;
+  onAddCourse: (name: string, color: string, groupId: string) => void;
+  onDeleteCourse: (id: string) => void;
 }
 
-export default function AppHeader({ filter, setFilter, onAddTask, courses, groups }: AppHeaderProps) {
+export default function AppHeader({ 
+  filter, 
+  setFilter, 
+  onAddTask, 
+  courses, 
+  groups,
+  onAddGroup,
+  onDeleteGroup,
+  onAddCourse,
+  onDeleteCourse
+}: AppHeaderProps) {
   const filters: { value: FilterType; label: string }[] = [
     { value: 'this-week', label: 'Esta semana' },
     { value: 'this-month', label: 'Este mes' },
@@ -52,6 +67,14 @@ export default function AppHeader({ filter, setFilter, onAddTask, courses, group
           ))}
         </div>
         <AddTaskDialog onAddTask={onAddTask} courses={courses} groups={groups} />
+        <ManageDataSheet
+          groups={groups}
+          courses={courses}
+          onAddGroup={onAddGroup}
+          onDeleteGroup={onDeleteGroup}
+          onAddCourse={onAddCourse}
+          onDeleteCourse={onDeleteCourse}
+        />
       </div>
     </header>
   );

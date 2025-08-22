@@ -24,7 +24,6 @@ export default function Home() {
     setIsClient(true);
   }, []);
 
-
   const handleTaskDrop = (taskId: string, newStatus: TaskStatus) => {
     setTasks((prevTasks) =>
       prevTasks.map((task) =>
@@ -42,6 +41,31 @@ export default function Home() {
     setTasks((prevTasks) => [...prevTasks, taskToAdd]);
   };
   
+  const handleAddGroup = (name: string) => {
+    const newGroup: Group = { id: `group-${Date.now()}`, name };
+    setGroups(prev => [...prev, newGroup]);
+  };
+
+  const handleDeleteGroup = (id: string) => {
+    setGroups(prev => prev.filter(g => g.id !== id));
+    // Also delete associated courses and tasks
+    const coursesToDelete = courses.filter(c => c.groupId === id);
+    const courseIdsToDelete = coursesToDelete.map(c => c.id);
+    setCourses(prev => prev.filter(c => c.groupId !== id));
+    setTasks(prev => prev.filter(t => !courseIdsToDelete.includes(t.courseId)));
+  };
+
+  const handleAddCourse = (name: string, color: string, groupId: string) => {
+    const newCourse: Course = { id: `course-${Date.now()}`, name, color, groupId };
+    setCourses(prev => [...prev, newCourse]);
+  };
+
+  const handleDeleteCourse = (id: string) => {
+    setCourses(prev => prev.filter(c => c.id !== id));
+    // Also delete associated tasks
+    setTasks(prev => prev.filter(t => t.courseId !== id));
+  };
+
   const filteredTasks = useMemo(() => {
     const now = new Date();
     switch (filter) {
@@ -77,6 +101,10 @@ export default function Home() {
         onAddTask={handleAddTask}
         courses={courses}
         groups={groups}
+        onAddGroup={handleAddGroup}
+        onDeleteGroup={handleDeleteGroup}
+        onAddCourse={handleAddCourse}
+        onDeleteCourse={handleDeleteCourse}
       />
       <main className="flex-1 overflow-x-auto p-4 md:p-6 lg:p-8">
         {isClient ? (
