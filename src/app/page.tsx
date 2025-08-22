@@ -38,51 +38,51 @@ export default function Home() {
     setCourses(initialCourses);
     setGroups(initialGroups);
   }, []);
-  
+
+  const loadDataFromDrive = useCallback(async (token: string) => {
+    setIsDataLoading(true);
+    setDriveError(null);
+    try {
+      const fileId = await findOrCreateDataFile(token);
+      setDataFileId(fileId);
+      const data = await readDataFile(token, fileId);
+
+      if (data && data.tasks && data.courses && data.groups) {
+        setTasks(data.tasks.map(t => ({ ...t, dueDate: t.dueDate ? new Date(t.dueDate) : undefined })));
+        setCourses(data.courses);
+        setGroups(data.groups);
+      } else {
+        const initialData = { tasks: initialTasks, courses: initialCourses, groups: initialGroups };
+        setTasks(initialData.tasks);
+        setCourses(initialData.courses);
+        setGroups(initialData.groups);
+        await writeDataFile(token, fileId, initialData);
+      }
+    } catch (error) {
+      console.error("Error during data loading from Drive:", error);
+      setDriveError("No se pudieron cargar los datos de Google Drive. Usando datos de ejemplo locales.");
+      loadInitialLocalData();
+    } finally {
+      setIsDataLoading(false);
+    }
+  }, [loadInitialLocalData]);
+
   useEffect(() => {
-    const loadData = async () => {
-      // Don't do anything if auth is still loading, or if we are not logged in and have no token
-      if (authLoading || !user || !accessToken) {
-        // If auth has finished loading and we still don't have a user, load local data
-        if (!authLoading && !user) {
-          loadInitialLocalData();
-          setIsDataLoading(false);
-        }
-        // If auth is done, we have a user, but no token yet, just wait.
-        // The AuthProvider will provide the token.
-        return;
-      }
-
-      setIsDataLoading(true);
-      setDriveError(null);
-
-      try {
-        const fileId = await findOrCreateDataFile(accessToken);
-        setDataFileId(fileId); 
-        const data = await readDataFile(accessToken, fileId);
-        
-        if (data && data.tasks && data.courses && data.groups) {
-           setTasks(data.tasks.map(t => ({ ...t, dueDate: t.dueDate ? new Date(t.dueDate) : undefined })));
-           setCourses(data.courses);
-           setGroups(data.groups);
-        } else {
-          const initialData = { tasks: initialTasks, courses: initialCourses, groups: initialGroups };
-          setTasks(initialData.tasks);
-          setCourses(initialData.courses);
-          setGroups(initialData.groups);
-          await writeDataFile(accessToken, fileId, initialData);
-        }
-      } catch (error) {
-        console.error("Error during data loading flow:", error);
-        setDriveError("No se pudieron cargar los datos de Google Drive. Usando datos de ejemplo.");
-        loadInitialLocalData();
-      } finally {
-        setIsDataLoading(false);
-      }
-    };
-  
-    loadData();
-  }, [user, accessToken, authLoading, loadInitialLocalData]);
+    if (authLoading) {
+      // Still waiting for Firebase to tell us if user is logged in
+      return;
+    }
+    if (user && accessToken) {
+      // User is logged in and we have the Google token, load data
+      loadDataFromDrive(accessToken);
+    } else if (!user) {
+      // User is not logged in, load local data and finish loading
+      loadInitialLocalData();
+      setIsDataLoading(false);
+    }
+    // The case where user exists but accessToken is null is handled by AuthProvider
+    // which will fetch the token and trigger a re-render.
+  }, [user, accessToken, authLoading, loadDataFromDrive, loadInitialLocalData]);
 
 
   const saveDataToDrive = useCallback(async (dataToSave: AppData) => {
@@ -105,42 +105,45 @@ export default function Home() {
   }, [dataFileId, accessToken]);
   
   useEffect(() => {
-    if (isDataLoading || !dataFileId) {
+    if (isDataLoading || !dataFileId || !user) {
+      // Don't save while loading, if there's no fileId, or if logged out.
       return;
     }
     const dataToSave = { tasks, courses, groups };
     saveDataToDrive(dataToSave);
-  }, [tasks, courses, groups, dataFileId, isDataLoading, saveDataToDrive]);
+  }, [tasks, courses, groups, dataFileId, isDataLoading, saveDataToDrive, user]);
 
 
   const handleTaskDrop = (taskId: string, newStatus: TaskStatus) => {
     let shouldShowConfetti = false;
-    let isOverdueAndCompleted = false;
-    
+    let taskToRemoveId: string | null = null;
+  
     setTasks(currentTasks => {
-      const updatedTasks = currentTasks.map((task) => {
+      const updatedTasks = currentTasks.map(task => {
         if (task.id === taskId) {
           if (newStatus === 'Terminado' && task.status !== 'Terminado') {
             shouldShowConfetti = true;
-            if (task.dueDate && isBefore(task.dueDate, new Date())) {
-                isOverdueAndCompleted = true;
+            // Check if task is overdue OR has no due date to remove it
+            if ((task.dueDate && isBefore(new Date(task.dueDate), new Date())) || !task.dueDate) {
+              taskToRemoveId = taskId;
             }
           }
           return { ...task, status: newStatus };
         }
         return task;
       });
-
+  
       if (shouldShowConfetti) {
-          setShowConfetti(true);
-          setTimeout(() => setShowConfetti(false), 4000);
-          
-          if (isOverdueAndCompleted) {
-              setTimeout(() => {
-                setTasks(currentTasks => currentTasks.filter(t => t.id !== taskId));
-              }, 3000);
-          }
+        setShowConfetti(true);
+        setTimeout(() => setShowConfetti(false), 4000);
+        
+        if (taskToRemoveId) {
+          setTimeout(() => {
+            setTasks(prevTasks => prevTasks.filter(t => t.id !== taskToRemoveId));
+          }, 3000);
+        }
       }
+  
       return updatedTasks;
     });
   };
@@ -211,12 +214,9 @@ export default function Home() {
 
   const filteredTasks = useMemo(() => {
     const now = new Date();
-    const tasksToShow = processedTasks.filter(task => {
-        if (task.status === 'Terminado' && task.dueDate && isAfter(new Date(), task.dueDate)) {
-            return false;
-        }
-        return true;
-    });
+    // This logic to hide completed & overdue tasks is now handled by the auto-removal
+    // in handleTaskDrop, so we can simplify this part.
+    const tasksToShow = processedTasks;
 
     switch (filter) {
       case 'this-week':
@@ -250,13 +250,13 @@ export default function Home() {
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
-            <p className="text-muted-foreground">Cargando...</p>
+            <p className="text-muted-foreground">Autenticando...</p>
         </div>
       </div>
     );
   }
-
-  if (!user) {
+  
+  if (!user && !isDataLoading) {
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-background p-4 text-center">
          <div className="flex items-center gap-2 mb-4">
