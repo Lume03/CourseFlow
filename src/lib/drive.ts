@@ -1,76 +1,97 @@
 'use client';
 
-import { google } from 'googleapis';
 import type { AppData } from './types';
 import { initialCourses, initialGroups, initialTasks } from './data';
 
 const FILE_NAME = 'courseflow-data.json';
-const FILE_MIME_TYPE = 'application/json';
+const DRIVE_API_URL = 'https://www.googleapis.com/drive/v3';
+const DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3';
 
-async function getDriveClient(accessToken: string) {
-  if (!accessToken) {
-    throw new Error('No access token found. Please sign in.');
-  }
-
-  const oauth2Client = new google.auth.OAuth2();
-  oauth2Client.setCredentials({ access_token: accessToken });
-
-  return google.drive({ version: 'v3', auth: oauth2Client });
-}
-
-export async function findOrCreateDataFile(accessToken: string) {
-  const drive = await getDriveClient(accessToken);
-  
-  const res = await drive.files.list({
-    q: `name='${FILE_NAME}' and mimeType='${FILE_MIME_TYPE}' and 'appDataFolder' in parents`,
-    fields: 'files(id, name)',
-    spaces: 'appDataFolder',
+async function findFile(accessToken: string): Promise<string | null> {
+  const res = await fetch(`${DRIVE_API_URL}/files?q=name='${FILE_NAME}' and 'appDataFolder' in parents&spaces=appDataFolder&fields=files(id)`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
   });
 
-  const existingFile = res.data.files?.[0];
-
-  if (existingFile?.id) {
-    return existingFile.id;
-  } else {
-    const fileMetadata = {
-      name: FILE_NAME,
-      parents: ['appDataFolder'],
-    };
-    const media = {
-      mimeType: FILE_MIME_TYPE,
-      body: JSON.stringify({ tasks: initialTasks, courses: initialCourses, groups: initialGroups } as AppData),
-    };
-    const file = await drive.files.create({
-      requestBody: fileMetadata,
-      media: media,
-      fields: 'id',
-    });
-    return file.data.id!;
+  if (!res.ok) {
+    throw new Error('Failed to search for file in Google Drive');
   }
+
+  const data = await res.json();
+  return data.files?.[0]?.id ?? null;
 }
 
+export async function findOrCreateDataFile(accessToken: string): Promise<string> {
+  let fileId = await findFile(accessToken);
+
+  if (fileId) {
+    return fileId;
+  }
+
+  // Create file if it doesn't exist
+  const initialData = JSON.stringify({
+    tasks: initialTasks,
+    courses: initialCourses,
+    groups: initialGroups,
+  } as AppData);
+
+  const metadata = {
+    name: FILE_NAME,
+    parents: ['appDataFolder'],
+    mimeType: 'application/json',
+  };
+
+  const form = new FormData();
+  form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+  form.append('file', new Blob([initialData], { type: 'application/json' }));
+
+  const res = await fetch(`${DRIVE_UPLOAD_URL}/files?uploadType=multipart`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: form,
+  });
+
+  if (!res.ok) {
+    throw new Error('Failed to create file in Google Drive');
+  }
+
+  const data = await res.json();
+  return data.id;
+}
+
+
 export async function readDataFile(accessToken: string, fileId: string): Promise<AppData | null> {
-    const drive = await getDriveClient(accessToken);
-    try {
-        const res = await drive.files.get({
-            fileId: fileId,
-            alt: 'media',
-        });
-        return res.data as unknown as AppData;
-    } catch (error) {
-        console.error('Error reading file from Google Drive:', error);
-        return null;
+  try {
+    const res = await fetch(`${DRIVE_API_URL}/files/${fileId}?alt=media`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!res.ok) {
+        if (res.status === 404) return null; // File not found is a valid case
+        throw new Error(`Failed to read file from Google Drive. Status: ${res.status}`);
     }
+
+    return await res.json();
+  } catch (error) {
+    console.error('Error reading file from Google Drive:', error);
+    return null;
+  }
 }
 
 export async function writeDataFile(accessToken: string, fileId: string, data: AppData) {
-    const drive = await getDriveClient(accessToken);
-    const media = {
-        mimeType: FILE_MIME_TYPE,
-        body: JSON.stringify(data),
-    };
-    await drive.files.update({
-        fileId: fileId,
-        media: media,
+    const content = JSON.stringify(data);
+
+    await fetch(`${DRIVE_UPLOAD_URL}/files/${fileId}?uploadType=media`, {
+        method: 'PATCH',
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+        },
+        body: content,
     });
 }
