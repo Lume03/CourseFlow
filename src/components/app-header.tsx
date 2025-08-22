@@ -3,6 +3,16 @@ import { Button } from '@/components/ui/button';
 import { AddTaskDialog } from './add-task-dialog';
 import { ManageDataSheet } from './manage-data-sheet';
 import { Separator } from './ui/separator';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { ListFilter } from 'lucide-react';
 
 interface AppHeaderProps {
   filter: FilterType;
@@ -28,10 +38,18 @@ export default function AppHeader({
   onDeleteCourse
 }: AppHeaderProps) {
   const timeFilters: { value: FilterType; label: string }[] = [
+    { value: 'all', label: 'Todas las tareas' },
     { value: 'this-week', label: 'Esta semana' },
     { value: 'this-month', label: 'Este mes' },
-    { value: 'all', label: 'Todas las tareas' },
   ];
+
+  const getFilterLabel = () => {
+    const timeFilter = timeFilters.find(f => f.value === filter);
+    if (timeFilter) return timeFilter.label;
+    const groupFilter = groups.find(g => g.id === filter);
+    if (groupFilter) return groupFilter.name;
+    return 'Filtro';
+  }
 
   return (
     <header className="flex h-16 shrink-0 items-center border-b bg-background/80 backdrop-blur-sm px-4 md:px-6 sticky top-0 z-10">
@@ -54,31 +72,34 @@ export default function AppHeader({
         <h1 className="text-lg font-semibold font-headline text-foreground">CourseFlow Kanban</h1>
       </div>
       <div className="ml-auto flex items-center gap-2">
-        <div className="hidden sm:flex items-center gap-2 rounded-lg bg-muted p-1">
-          {timeFilters.map((f) => (
-            <Button
-              key={f.value}
-              variant={filter === f.value ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setFilter(f.value)}
-              className={filter === f.value ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground'}
-            >
-              {f.label}
+         <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline">
+              <ListFilter className="mr-2 h-4 w-4" />
+              {getFilterLabel()}
             </Button>
-          ))}
-          <Separator orientation="vertical" className="h-6 mx-1" />
-           {groups.map((g) => (
-            <Button
-              key={g.id}
-              variant={filter === g.id ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setFilter(g.id)}
-              className={filter === g.id ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground'}
-            >
-              {g.name}
-            </Button>
-          ))}
-        </div>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-56">
+            <DropdownMenuLabel>Filtros de tiempo</DropdownMenuLabel>
+            <DropdownMenuGroup>
+              {timeFilters.map((f) => (
+                <DropdownMenuItem key={f.value} onSelect={() => setFilter(f.value)}>
+                  {f.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+            {groups.length > 0 && <DropdownMenuSeparator />}
+            {groups.length > 0 && <DropdownMenuLabel>Filtros de grupo</DropdownMenuLabel>}
+             <DropdownMenuGroup>
+                {groups.map((g) => (
+                  <DropdownMenuItem key={g.id} onSelect={() => setFilter(g.id)}>
+                    {g.name}
+                  </DropdownMenuItem>
+                ))}
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         <AddTaskDialog onAddTask={onAddTask} courses={courses} groups={groups} />
         <ManageDataSheet
           groups={groups}
