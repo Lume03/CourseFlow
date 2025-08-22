@@ -2,7 +2,7 @@ import type { FilterType, Course, Group, Task } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { AddTaskDialog } from './add-task-dialog';
 import { ManageDataSheet } from './manage-data-sheet';
-import { useSession, signOut } from 'next-auth/react';
+import { useAuth } from './auth-provider';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,7 +41,7 @@ export default function AppHeader({
   onDeleteCourse,
   isSaving
 }: AppHeaderProps) {
-  const { data: session } = useSession();
+  const { user, signOut } = useAuth();
 
   const timeFilters: { value: FilterType; label: string }[] = [
     { value: 'all', label: 'Todas las tareas' },
@@ -82,7 +82,7 @@ export default function AppHeader({
          {isSaving && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
          <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="md:w-[180px] justify-start">
+             <Button variant="outline" size="icon" className="md:w-[180px] md:justify-start">
               <ListFilter className="mr-0 md:mr-2 h-4 w-4" />
               <span className="hidden md:inline">{getFilterLabel()}</span>
             </Button>
@@ -122,17 +122,17 @@ export default function AppHeader({
             <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                     <Avatar className="h-8 w-8">
-                        <AvatarImage src={session?.user?.image ?? ''} alt={session?.user?.name ?? ''} />
-                        <AvatarFallback>{session?.user?.name?.[0]}</AvatarFallback>
+                        <AvatarImage src={user?.photoURL ?? ''} alt={user?.displayName ?? ''} />
+                        <AvatarFallback>{user?.displayName?.[0]}</AvatarFallback>
                     </Avatar>
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56" align="end" forceMount>
                 <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none">{session?.user?.name}</p>
+                    <p className="text-sm font-medium leading-none">{user?.displayName}</p>
                     <p className="text-xs leading-none text-muted-foreground">
-                    {session?.user?.email}
+                    {user?.email}
                     </p>
                 </div>
                 </DropdownMenuLabel>

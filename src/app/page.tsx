@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import type { Task, Course, Group, TaskStatus, FilterType, AppData } from '@/lib/types';
-import { useSession, signIn } from 'next-auth/react';
+import { useAuth } from '@/components/auth-provider';
 import { initialTasks, initialCourses, initialGroups } from '@/lib/data';
 import AppHeader from '@/components/app-header';
 import KanbanBoard from '@/components/kanban-board';
@@ -14,7 +14,7 @@ import { Loader2 } from 'lucide-react';
 import { findOrCreateDataFile, readDataFile, writeDataFile } from '@/lib/drive';
 
 export default function Home() {
-  const { data: session, status } = useSession();
+  const { user, accessToken, loading, signIn } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -23,17 +23,19 @@ export default function Home() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [dataFileId, setDataFileId] = useState<string | null>(null);
+  const [isDataLoading, setIsDataLoading] = useState(true);
 
   useEffect(() => {
     setIsClient(true);
   }, []);
 
   const loadDataFromDrive = useCallback(async () => {
-    if (!session) return;
+    if (!accessToken) return;
+    setIsDataLoading(true);
     try {
-      const fileId = await findOrCreateDataFile();
+      const fileId = await findOrCreateDataFile(accessToken);
       setDataFileId(fileId);
-      const data = await readDataFile(fileId);
+      const data = await readDataFile(accessToken, fileId);
       if (data) {
         setTasks(data.tasks.map(t => ({ ...t, dueDate: t.dueDate ? new Date(t.dueDate) : undefined })));
         setCourses(data.courses);
@@ -49,26 +51,28 @@ export default function Home() {
       setTasks(initialTasks);
       setCourses(initialCourses);
       setGroups(initialGroups);
+    } finally {
+        setIsDataLoading(false);
     }
-  }, [session]);
+  }, [accessToken]);
   
   useEffect(() => {
-    if (status === 'authenticated') {
+    if (user && accessToken) {
       loadDataFromDrive();
     }
-  }, [status, loadDataFromDrive]);
+  }, [user, accessToken, loadDataFromDrive]);
 
   const saveDataToDrive = useCallback(async (data: AppData) => {
-    if (!dataFileId) return;
+    if (!dataFileId || !accessToken) return;
     setIsSaving(true);
     try {
-      await writeDataFile(dataFileId, data);
+      await writeDataFile(accessToken, dataFileId, data);
     } catch (error) {
       console.error("Error saving data to Drive:", error);
     } finally {
       setIsSaving(false);
     }
-  }, [dataFileId]);
+  }, [dataFileId, accessToken]);
   
   const handleTaskDrop = (taskId: string, newStatus: TaskStatus) => {
     let shouldShowConfetti = false;
@@ -207,7 +211,7 @@ export default function Home() {
     }
   }, [processedTasks, filter, courses]);
 
-  if (status === 'loading' || (status === 'authenticated' && !dataFileId)) {
+  if (loading || (user && isDataLoading)) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -218,7 +222,7 @@ export default function Home() {
     );
   }
 
-  if (status === 'unauthenticated') {
+  if (!user) {
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-background p-4 text-center">
          <div className="flex items-center gap-2 mb-4">
@@ -230,7 +234,7 @@ export default function Home() {
         <p className="max-w-md mb-8 text-muted-foreground">
           Organiza tus cursos, gestiona tus tareas y sincroniza tu progreso en todos tus dispositivos. Inicia sesión para empezar.
         </p>
-        <Button onClick={() => signIn('google')}>
+        <Button onClick={signIn}>
           <svg className="mr-2 h-4 w-4" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512"><path fill="currentColor" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 126 21.2 172.9 56.5l-63.7 61.9C331.4 99.2 292.1 82 248 82c-73.3 0-133.4 58.9-133.4 131.5s60.1 131.5 133.4 131.5c82.3 0 114.3-55 119.5-83.3H248v-61.4h235.2c2.4 12.3 3.8 24.7 3.8 37.8z"></path></svg>
           Iniciar Sesión con Google
         </Button>
