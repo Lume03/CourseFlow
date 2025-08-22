@@ -15,9 +15,11 @@ import { findOrCreateDataFile, readDataFile, writeDataFile } from '@/lib/drive';
 
 export default function Home() {
   const { user, accessToken, loading: authLoading, signIn } = useAuth();
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
-  const [courses, setCourses] = useState<Course[]>(initialCourses);
-  const [groups, setGroups] = useState<Group[]>(initialGroups);
+  
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  
   const [filter, setFilter] = useState<FilterType>('all');
   const [isClient, setIsClient] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
@@ -30,7 +32,14 @@ export default function Home() {
     setIsClient(true);
   }, []);
 
+  const loadInitialLocalData = () => {
+    setTasks(initialTasks);
+    setCourses(initialCourses);
+    setGroups(initialGroups);
+  }
+
   const loadDataFromDrive = useCallback(async (token: string) => {
+    if (!token) return;
     setIsDataLoading(true);
     setDriveError(null);
     try {
@@ -38,49 +47,62 @@ export default function Home() {
       setDataFileId(fileId);
       const data = await readDataFile(token, fileId);
       if (data && data.tasks && data.courses && data.groups) {
-         // Ensure due dates are converted back to Date objects
          setTasks(data.tasks.map(t => ({ ...t, dueDate: t.dueDate ? new Date(t.dueDate) : undefined })));
          setCourses(data.courses);
          setGroups(data.groups);
       } else {
-        // File is new or empty, use initial data. This will be saved on the first change.
-        setTasks(initialTasks);
-        setCourses(initialCourses);
-        setGroups(initialGroups);
+        loadInitialLocalData();
+        // Save the initial data to Drive for the first time
+        if (fileId) {
+          saveDataToDrive({ tasks: initialTasks, courses: initialCourses, groups: initialGroups }, fileId, token);
+        }
       }
     } catch (error) {
       console.error("Error loading data from Drive:", error);
-      setDriveError("No se pudieron cargar los datos de Google Drive. Usando datos de ejemplo.");
-      // Fallback to initial data on error
-      setTasks(initialTasks);
-      setCourses(initialCourses);
-      setGroups(initialGroups);
+      setDriveError("No se pudieron cargar los datos de Google Drive. Usando datos de ejemplo y mostrando la pantalla de inicio de sesión.");
+      loadInitialLocalData();
     } finally {
         setIsDataLoading(false);
     }
-  }, []);
-  
+  }, []); // useCallback dependencies are empty as it doesn't depend on component state directly
+
   useEffect(() => {
+    // This effect now correctly handles the entire loading flow.
     if (authLoading) {
+      // If Firebase auth is still loading, we wait.
       setIsDataLoading(true);
       return;
     }
-    if (!user) {
-      setIsDataLoading(false);
-      return;
-    }
+    
     if (user && accessToken) {
+      // If we have a user AND an access token, we can load data from drive.
       loadDataFromDrive(accessToken);
+    } else if (user && !accessToken) {
+        // This is the refresh case: user is logged in, but we need a new token.
+        // For this app's logic, we can treat this as "not fully logged in" and wait,
+        // or prompt sign-in again to get a fresh token. The UI will show the login button.
+        setIsDataLoading(false);
+        // Clear any old data
+        setTasks([]);
+        setCourses([]);
+        setGroups([]);
+    } else {
+      // No user, not loading. Show the login page.
+      setIsDataLoading(false);
+      loadInitialLocalData();
     }
   }, [user, accessToken, authLoading, loadDataFromDrive]);
 
 
-  const saveDataToDrive = useCallback(async (data: AppData) => {
-    if (!dataFileId || !accessToken) return;
+  const saveDataToDrive = useCallback(async (data: AppData, fileIdToSave?: string | null, tokenToSave?: string | null) => {
+    const finalFileId = fileIdToSave || dataFileId;
+    const finalToken = tokenToSave || accessToken;
+
+    if (!finalFileId || !finalToken) return;
     setIsSaving(true);
-    setDriveError(null); // Clear previous errors on a new save attempt
+    setDriveError(null);
     try {
-      await writeDataFile(accessToken, dataFileId, data);
+      await writeDataFile(finalToken, finalFileId, data);
     } catch (error) {
       console.error("Error saving data to Drive:", error);
        setDriveError("No se pudieron guardar los cambios en Google Drive.");
@@ -240,7 +262,7 @@ export default function Home() {
     }
   }, [processedTasks, filter, courses]);
 
-  if (authLoading || (user && isDataLoading)) {
+  if (authLoading || isDataLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -251,7 +273,7 @@ export default function Home() {
     );
   }
 
-  if (!user) {
+  if (!user || !accessToken) {
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-background p-4 text-center">
          <div className="flex items-center gap-2 mb-4">
@@ -267,6 +289,11 @@ export default function Home() {
           <svg className="mr-2 h-4 w-4" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512"><path fill="currentColor" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 126 21.2 172.9 56.5l-63.7 61.9C331.4 99.2 292.1 82 248 82c-73.3 0-133.4 58.9-133.4 131.5s60.1 131.5 133.4 131.5c82.3 0 114.3-55 119.5-83.3H248v-61.4h235.2c2.4 12.3 3.8 24.7 3.8 37.8z"></path></svg>
           Iniciar Sesión con Google
         </Button>
+         {driveError && (
+          <div className="mt-4 max-w-md rounded-md border border-destructive bg-destructive/10 p-4 text-center text-sm text-destructive-foreground">
+              {driveError}
+          </div>
+        )}
       </div>
     );
   }
