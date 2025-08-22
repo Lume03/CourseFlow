@@ -36,94 +36,85 @@ export default function Home() {
     setTasks(initialTasks);
     setCourses(initialCourses);
     setGroups(initialGroups);
-  }
-
-  const loadDataFromDrive = useCallback(async (token: string) => {
-    setIsDataLoading(true);
-    setDriveError(null);
-    try {
-      const fileId = await findOrCreateDataFile(token);
-      setDataFileId(fileId);
-      const data = await readDataFile(token, fileId);
-      if (data && data.tasks && data.courses && data.groups) {
-         setTasks(data.tasks.map(t => ({ ...t, dueDate: t.dueDate ? new Date(t.dueDate) : undefined })));
-         setCourses(data.courses);
-         setGroups(data.groups);
-      } else {
-        // This case handles a completely new user or if readDataFile returns null
-        const initialData = { tasks: initialTasks, courses: initialCourses, groups: initialGroups };
-        loadInitialLocalData();
-        // Save the initial data to Drive for the first time
-        if (fileId) {
-          await saveDataToDrive(initialData, fileId, token);
-        }
-      }
-    } catch (error) {
-      console.error("Error loading data from Drive:", error);
-      setDriveError("No se pudieron cargar los datos de Google Drive. Usando datos de ejemplo. Por favor, recarga la página.");
-      loadInitialLocalData();
-    } finally {
-        setIsDataLoading(false);
-    }
-  }, []); // useCallback dependencies are minimal, functions are stable
-
+  };
+  
   useEffect(() => {
-    // Show loading screen if Firebase auth is in progress
-    if (authLoading) {
-      setIsDataLoading(true);
-      return;
-    }
+    const loadData = async () => {
+      if (authLoading) return;
+  
+      if (user && accessToken) {
+        setIsDataLoading(true);
+        setDriveError(null);
+        try {
+          const fileId = await findOrCreateDataFile(accessToken);
+          setDataFileId(fileId);
+          const data = await readDataFile(accessToken, fileId);
+          if (data && data.tasks && data.courses && data.groups) {
+             setTasks(data.tasks.map(t => ({ ...t, dueDate: t.dueDate ? new Date(t.dueDate) : undefined })));
+             setCourses(data.courses);
+             setGroups(data.groups);
+          } else {
+            const initialData = { tasks: initialTasks, courses: initialCourses, groups: initialGroups };
+            setTasks(initialData.tasks);
+            setCourses(initialData.courses);
+            setGroups(initialData.groups);
+            if (fileId) {
+              await writeDataFile(accessToken, fileId, initialData);
+            }
+          }
+        } catch (error) {
+          console.error("Error loading data from Drive:", error);
+          setDriveError("No se pudieron cargar los datos de Google Drive. Usando datos de ejemplo. Por favor, recarga la página.");
+          loadInitialLocalData();
+        } finally {
+            setIsDataLoading(false);
+        }
+      } else if (!user) {
+        // Not logged in, load local data and stop loading indicator
+        loadInitialLocalData();
+        setIsDataLoading(false);
+      }
+    };
+  
+    loadData();
+  }, [user, accessToken, authLoading]);
+
+
+  const saveDataToDrive = useCallback(async (data: AppData) => {
+    if (!dataFileId || !accessToken) return;
     
-    // If we have a user and a valid token, load data from Drive
-    if (user && accessToken) {
-      loadDataFromDrive(accessToken);
-    } else {
-      // If there's no user or no token (e.g., after logout or on initial visit)
-      // stop loading and show the login page with local data.
-      setIsDataLoading(false);
-      loadInitialLocalData();
-    }
-  }, [user, accessToken, authLoading, loadDataFromDrive]);
-
-
-  const saveDataToDrive = useCallback(async (data: AppData, fileIdToSave?: string | null, tokenToSave?: string | null) => {
-    const finalFileId = fileIdToSave || dataFileId;
-    const finalToken = tokenToSave || accessToken;
-
-    if (!finalFileId || !finalToken) return;
     setIsSaving(true);
     setDriveError(null);
     try {
-      await writeDataFile(finalToken, finalFileId, data);
+      await writeDataFile(accessToken, dataFileId, data);
     } catch (error) {
       console.error("Error saving data to Drive:", error);
        setDriveError("No se pudieron guardar los cambios en Google Drive.");
     } finally {
-      setIsSaving(false);
+      // Add a small delay to show the saving indicator
+      setTimeout(() => setIsSaving(false), 500);
     }
   }, [dataFileId, accessToken]);
   
   const handleTaskDrop = (taskId: string, newStatus: TaskStatus) => {
     let shouldShowConfetti = false;
     let isOverdueAndCompleted = false;
-    let updatedTasks: Task[] = [];
-
-    setTasks((prevTasks) => {
-      updatedTasks = prevTasks.map((task) => {
-        if (task.id === taskId) {
-          if (newStatus === 'Terminado' && task.status !== 'Terminado') {
-            shouldShowConfetti = true;
-            if (task.dueDate && isBefore(task.dueDate, new Date())) {
-                isOverdueAndCompleted = true;
-            }
+    
+    const updatedTasks = tasks.map((task) => {
+      if (task.id === taskId) {
+        if (newStatus === 'Terminado' && task.status !== 'Terminado') {
+          shouldShowConfetti = true;
+          if (task.dueDate && isBefore(task.dueDate, new Date())) {
+              isOverdueAndCompleted = true;
           }
-          return { ...task, status: newStatus };
         }
-        return task;
-      });
-      saveDataToDrive({tasks: updatedTasks, courses, groups});
-      return updatedTasks;
+        return { ...task, status: newStatus };
+      }
+      return task;
     });
+
+    setTasks(updatedTasks);
+    saveDataToDrive({tasks: updatedTasks, courses, groups});
 
     if (shouldShowConfetti) {
         setShowConfetti(true);
@@ -131,11 +122,9 @@ export default function Home() {
         
         if (isOverdueAndCompleted) {
             setTimeout(() => {
-              setTasks(prev => {
-                const finalTasks = prev.filter(t => t.id !== taskId);
-                saveDataToDrive({tasks: finalTasks, courses, groups});
-                return finalTasks;
-              });
+              const finalTasks = updatedTasks.filter(t => t.id !== taskId);
+              setTasks(finalTasks);
+              saveDataToDrive({tasks: finalTasks, courses, groups});
             }, 3000);
         }
     }
