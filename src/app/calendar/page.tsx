@@ -23,6 +23,12 @@ interface CalendarEvent {
   htmlLink: string;
 }
 
+interface CalendarListItem {
+    id: string;
+    summary: string;
+    primary?: boolean;
+}
+
 export default function CalendarPage() {
   const { user, accessToken, loading: authLoading } = useAuth();
 
@@ -49,22 +55,50 @@ export default function CalendarPage() {
     setIsCalendarLoading(true);
     setCalendarError(null);
     try {
+      // 1. Fetch all calendar lists
+      const listRes = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!listRes.ok) {
+        throw new Error('No se pudo obtener la lista de calendarios.');
+      }
+      const calendarList = await listRes.json();
+      const calendars: CalendarListItem[] = calendarList.items;
+
       const timeMin = startOfWeek(date, { weekStartsOn: 1 }).toISOString();
       const timeMax = endOfWeek(date, { weekStartsOn: 1 }).toISOString();
 
-      const response = await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=100`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      // 2. Fetch events for each calendar
+      const allEventsPromises = calendars.map(cal => {
+        const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=100`;
+        return fetch(url, { headers: { Authorization: `Bearer ${token}` } }).then(res => {
+            if (!res.ok) {
+                console.warn(`Error al cargar eventos para el calendario ${cal.summary}`);
+                return { items: [] }; // Return empty on error for a specific calendar
+            }
+            return res.json();
+        });
+      });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error.message || 'Error al cargar los eventos del calendario.');
-      }
-      const data = await response.json();
-      setCalendarEvents(data.items || []);
+      const allEventsResults = await Promise.all(allEventsPromises);
+      const allEvents = allEventsResults.flatMap(result => result.items || []);
+      
+      // Sort all events by start time
+      allEvents.sort((a, b) => {
+        const aTime = new Date(a.start.dateTime || a.start.date).getTime();
+        const bTime = new Date(b.start.dateTime || b.start.date).getTime();
+        return aTime - bTime;
+      });
+
+      setCalendarEvents(allEvents);
+
     } catch (err: any) {
-      setCalendarError(err.message);
+      // Check for specific API not enabled error
+      if (err.message?.includes('API has not been used')) {
+         setCalendarError("La API de Google Calendar no ha sido habilitada en tu proyecto de Google Cloud. Por favor, habilítala y vuelve a intentarlo.");
+      } else {
+         setCalendarError(err.message || 'Error al cargar los eventos del calendario.');
+      }
       console.error(err);
     } finally {
       setIsCalendarLoading(false);
@@ -95,7 +129,7 @@ export default function CalendarPage() {
     if (!accessToken) {
       setIsCalendarLoading(false);
       setIsTaskDataLoading(false);
-      setCalendarError('No se pudo obtener el token de acceso.');
+      setCalendarError('No se pudo obtener el token de acceso. Por favor, vuelve a iniciar sesión.');
       return;
     }
     
