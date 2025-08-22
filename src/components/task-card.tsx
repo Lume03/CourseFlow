@@ -1,16 +1,40 @@
-import type { Task } from '@/lib/types';
+import type { Task, Course, Group } from '@/lib/types';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
-import { Calendar, GripVertical } from 'lucide-react';
+import { Calendar, GripVertical, MoreVertical, Edit, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
+import { EditTaskDialog } from './edit-task-dialog';
+import { useState } from 'react';
 
 
 interface TaskCardProps {
   task: Task;
+  courses: Course[];
+  groups: Group[];
+  onEditTask: (task: Task) => void;
+  onDeleteTask: (taskId: string) => void;
 }
 
-export default function TaskCard({ task }: TaskCardProps) {
+export default function TaskCard({ task, courses, groups, onEditTask, onDeleteTask }: TaskCardProps) {
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
     e.dataTransfer.setData('taskId', task.id);
   };
@@ -22,7 +46,7 @@ export default function TaskCard({ task }: TaskCardProps) {
       draggable={!isCompleted}
       onDragStart={handleDragStart}
       className={cn(
-        'shadow-md hover:shadow-lg transition-all duration-300',
+        'shadow-md hover:shadow-lg transition-all duration-300 group',
         isCompleted 
           ? 'bg-green-100 dark:bg-green-900/40 border-green-500 cursor-default'
           : 'cursor-grab active:cursor-grabbing',
@@ -36,7 +60,60 @@ export default function TaskCard({ task }: TaskCardProps) {
             isCompleted && "text-green-900 dark:text-green-100",
             task.isUrgent && !isCompleted && "text-red-900 dark:text-red-100"
             )}>{task.title}</CardTitle>
-        <GripVertical className={cn("h-5 w-5 text-muted-foreground", isCompleted && "hidden")} />
+        
+        {isCompleted ? (
+           <GripVertical className="h-5 w-5 text-transparent" />
+        ) : (
+          <div className="relative">
+            <GripVertical className="h-5 w-5 text-muted-foreground transition-opacity group-hover:opacity-0" />
+            <div className="absolute top-0 right-0 transition-opacity opacity-0 group-hover:opacity-100">
+               <EditTaskDialog
+                task={task}
+                onEditTask={onEditTask}
+                courses={courses}
+                groups={groups}
+                open={isEditDialogOpen}
+                onOpenChange={setIsEditDialogOpen}
+              >
+                <AlertDialog>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button className="focus:outline-none focus:ring-2 focus:ring-ring rounded-full p-1">
+                           <MoreVertical className="h-5 w-5 text-muted-foreground" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => setIsEditDialogOpen(true)}>
+                          <Edit className="mr-2 h-4 w-4" />
+                          <span>Editar</span>
+                        </DropdownMenuItem>
+                        <AlertDialogTrigger asChild>
+                          <DropdownMenuItem className="text-destructive focus:text-destructive">
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            <span>Eliminar</span>
+                          </DropdownMenuItem>
+                        </AlertDialogTrigger>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Esta acción no se puede deshacer. Se eliminará la tarea permanentemente.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => onDeleteTask(task.id)} className="bg-destructive hover:bg-destructive/90">
+                          Eliminar
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+              </EditTaskDialog>
+            </div>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="p-4 pt-0">
         {task.description && (

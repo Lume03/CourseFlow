@@ -61,21 +61,17 @@ export default function Home() {
   }, []);
   
   useEffect(() => {
-    // This effect handles the initial data loading sequence.
     if (authLoading) {
-      // Auth state is being determined, show loading screen.
       setIsDataLoading(true);
       return;
     }
-
-    if (user && accessToken) {
-      // User is logged in and we have a token, start loading data from Drive.
-      loadDataFromDrive(accessToken);
-    } else {
-       // User is not logged in, stop the loading process and show the login page.
+    if (!user) {
       setIsDataLoading(false);
+      return;
     }
-     // Key dependencies: user, accessToken, authLoading will trigger this when they change.
+    if (user && accessToken) {
+      loadDataFromDrive(accessToken);
+    }
   }, [user, accessToken, authLoading, loadDataFromDrive]);
 
 
@@ -138,6 +134,20 @@ export default function Home() {
       status: 'No Iniciado',
     };
     const updatedTasks = [...tasks, taskToAdd];
+    setTasks(updatedTasks);
+    saveDataToDrive({tasks: updatedTasks, courses, groups});
+  };
+
+  const handleEditTask = (updatedTask: Task) => {
+    const updatedTasks = tasks.map(task => 
+      task.id === updatedTask.id ? updatedTask : task
+    );
+    setTasks(updatedTasks);
+    saveDataToDrive({tasks: updatedTasks, courses, groups});
+  };
+
+  const handleDeleteTask = (taskId: string) => {
+    const updatedTasks = tasks.filter(task => task.id !== taskId);
     setTasks(updatedTasks);
     saveDataToDrive({tasks: updatedTasks, courses, groups});
   };
@@ -230,7 +240,7 @@ export default function Home() {
     }
   }, [processedTasks, filter, courses]);
 
-  if (authLoading || isDataLoading) {
+  if (authLoading || (user && isDataLoading)) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -283,7 +293,14 @@ export default function Home() {
           </div>
         )}
         {isClient ? (
-          <KanbanBoard tasks={filteredTasks} onTaskDrop={handleTaskDrop} />
+          <KanbanBoard 
+            tasks={filteredTasks} 
+            onTaskDrop={handleTaskDrop}
+            courses={courses}
+            groups={groups}
+            onEditTask={handleEditTask}
+            onDeleteTask={handleDeleteTask}
+          />
         ) : (
           <KanbanSkeleton />
         )}
