@@ -8,10 +8,10 @@ import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { format, parseISO, startOfWeek, endOfWeek, addDays, eachDayOfInterval, isSameDay, isToday, addWeeks, subWeeks } from 'date-fns';
+import { format, parseISO, startOfWeek, endOfWeek, addDays, eachDayOfInterval, isSameDay, isToday, addWeeks, subWeeks, set } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
-import type { Task, Course, Group, AppData } from '@/lib/types';
+import type { Task, Course, Group } from '@/lib/types';
 import { findOrCreateDataFile, readDataFile } from '@/lib/drive';
 
 
@@ -21,6 +21,8 @@ interface CalendarEvent {
   start: { dateTime: string; date: string };
   end: { dateTime: string; date: string };
   htmlLink: string;
+  color?: string;
+  isAllDay: boolean;
 }
 
 interface CalendarListItem {
@@ -28,6 +30,18 @@ interface CalendarListItem {
     summary: string;
     primary?: boolean;
 }
+
+// Helper to get a stable random pastel color based on a string (like calendar ID)
+const stringToPastelColor = (str: string) => {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const h = hash % 360;
+    // Using HSL color space for soft pastel colors
+    return `hsl(${h}, 70%, 85%)`; 
+};
+
 
 export default function CalendarPage() {
   const { user, accessToken, loading: authLoading } = useAuth();
@@ -71,17 +85,27 @@ export default function CalendarPage() {
       // 2. Fetch events for each calendar
       const allEventsPromises = calendars.map(cal => {
         const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=100`;
-        return fetch(url, { headers: { Authorization: `Bearer ${token}` } }).then(res => {
+        return fetch(url, { headers: { Authorization: `Bearer ${token}` } }).then(async (res) => {
             if (!res.ok) {
                 console.warn(`Error al cargar eventos para el calendario ${cal.summary}`);
                 return { items: [] }; // Return empty on error for a specific calendar
             }
-            return res.json();
+            const result = await res.json();
+            const color = stringToPastelColor(cal.id);
+            // Add color and all-day flag to each event
+            return {
+              ...result,
+              items: result.items.map((event: any) => ({
+                ...event,
+                color,
+                isAllDay: !!event.start.date, // Events with `date` but no `dateTime` are all-day
+              })),
+            };
         });
       });
 
       const allEventsResults = await Promise.all(allEventsPromises);
-      const allEvents = allEventsResults.flatMap(result => result.items || []);
+      let allEvents = allEventsResults.flatMap(result => result.items || []);
       
       // Sort all events by start time
       allEvents.sort((a, b) => {
@@ -162,6 +186,39 @@ export default function CalendarPage() {
     }
     return 'Todo el día';
   };
+
+  const getEventsAndTasksForDay = useCallback((day: Date) => {
+      const gCalEvents = calendarEvents
+          .filter(event => isSameDay(parseISO(event.start.dateTime || event.start.date), day))
+          .map(event => ({
+              type: 'gcal',
+              date: parseISO(event.start.dateTime || event.start.date),
+              component: (
+                  <a href={event.htmlLink} target="_blank" rel="noopener noreferrer" key={event.id}>
+                      <div className="p-2 rounded-lg text-black/80 border-l-4" style={{ backgroundColor: event.color, borderColor: 'rgba(0,0,0,0.2)'}}>
+                          <p className="text-xs font-semibold">{getEventTime(event)}</p>
+                          <p className="text-sm">{event.summary}</p>
+                      </div>
+                  </a>
+              )
+          }));
+
+      const localTasks = tasks
+          .filter(task => task.dueDate && isSameDay(task.dueDate, day))
+          .map(task => ({
+              type: 'task',
+              date: task.dueDate!,
+              component: (
+                  <div key={task.id} className="p-2 rounded-lg bg-card border-l-4" style={{borderColor: task.color}}>
+                      <p className="text-xs font-semibold text-muted-foreground">{task.status}</p>
+                      <p className="text-sm font-semibold">{task.title}</p>
+                  </div>
+              )
+          }));
+
+      return [...gCalEvents, ...localTasks].sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  }, [calendarEvents, tasks]);
 
   const handlePrevWeek = () => setCurrentDate(subWeeks(currentDate, 1));
   const handleNextWeek = () => setCurrentDate(addWeeks(currentDate, 1));
@@ -255,43 +312,29 @@ export default function CalendarPage() {
              </div>
            ) : (
             <div className="grid grid-cols-7 h-full divide-x">
-              {weekDays.map(day => (
-                <div key={day.toString()} className="flex flex-col h-full">
-                   <div className={cn(
-                      "p-2 text-center border-b sticky top-0 bg-background/90 backdrop-blur-sm",
-                       isToday(day) && "text-primary font-bold"
-                     )}>
-                       <p className="text-sm uppercase font-semibold">{format(day, 'EEE', { locale: es })}</p>
-                       <p className={cn("text-2xl font-headline", isToday(day) && "text-primary rounded-full")}>{format(day, 'd')}</p>
-                   </div>
-                   <div className="flex-1 overflow-y-auto p-2 space-y-2 bg-secondary/10">
-                      {/* Google Calendar Events */}
-                      {calendarEvents.filter(event => isSameDay(parseISO(event.start.dateTime || event.start.date), day)).map(event => (
-                        <a href={event.htmlLink} target="_blank" rel="noopener noreferrer" key={event.id}>
-                           <div className="p-2 rounded-lg bg-accent/50 text-accent-foreground border-l-4 border-accent">
-                            <p className="text-xs font-semibold">{getEventTime(event)}</p>
-                            <p className="text-sm">{event.summary}</p>
+              {weekDays.map(day => {
+                const dayItems = getEventsAndTasksForDay(day);
+                return (
+                  <div key={day.toString()} className="flex flex-col h-full">
+                    <div className={cn(
+                        "p-2 text-center border-b sticky top-0 bg-background/90 backdrop-blur-sm",
+                        isToday(day) && "text-primary font-bold"
+                      )}>
+                        <p className="text-sm uppercase font-semibold">{format(day, 'EEE', { locale: es })}</p>
+                        <p className={cn("text-2xl font-headline", isToday(day) && "text-primary rounded-full")}>{format(day, 'd')}</p>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-2 space-y-2 bg-secondary/10">
+                        {dayItems.length > 0 ? (
+                           dayItems.map(item => item.component)
+                        ) : (
+                          <div className="h-full flex items-center justify-center">
+                            <GripVertical className="h-6 w-6 text-muted-foreground/20"/>
                           </div>
-                        </a>
-                      ))}
-                      {/* Local Tasks */}
-                      {tasks.filter(task => task.dueDate && isSameDay(task.dueDate, day)).map(task => (
-                        <div key={task.id} className="p-2 rounded-lg bg-card border-l-4" style={{borderColor: task.color}}>
-                          <p className="text-xs font-semibold text-muted-foreground">{task.status}</p>
-                           <p className="text-sm font-semibold">{task.title}</p>
-                        </div>
-                      ))}
-
-                      {calendarEvents.filter(event => isSameDay(parseISO(event.start.dateTime || event.start.date), day)).length === 0 && 
-                       tasks.filter(task => task.dueDate && isSameDay(task.dueDate, day)).length === 0 && (
-                        <div className="h-full flex items-center justify-center">
-                           <GripVertical className="h-6 w-6 text-muted-foreground/20"/>
-                        </div>
-                       )
-                      }
-                   </div>
-                </div>
-              ))}
+                        )}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
            )}
         </main>
@@ -299,3 +342,5 @@ export default function CalendarPage() {
     </div>
   );
 }
+
+    
