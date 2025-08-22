@@ -39,7 +39,6 @@ export default function Home() {
   }
 
   const loadDataFromDrive = useCallback(async (token: string) => {
-    if (!token) return;
     setIsDataLoading(true);
     setDriveError(null);
     try {
@@ -51,43 +50,36 @@ export default function Home() {
          setCourses(data.courses);
          setGroups(data.groups);
       } else {
+        // This case handles a completely new user or if readDataFile returns null
+        const initialData = { tasks: initialTasks, courses: initialCourses, groups: initialGroups };
         loadInitialLocalData();
         // Save the initial data to Drive for the first time
         if (fileId) {
-          saveDataToDrive({ tasks: initialTasks, courses: initialCourses, groups: initialGroups }, fileId, token);
+          await saveDataToDrive(initialData, fileId, token);
         }
       }
     } catch (error) {
       console.error("Error loading data from Drive:", error);
-      setDriveError("No se pudieron cargar los datos de Google Drive. Usando datos de ejemplo y mostrando la pantalla de inicio de sesión.");
+      setDriveError("No se pudieron cargar los datos de Google Drive. Usando datos de ejemplo. Por favor, recarga la página.");
       loadInitialLocalData();
     } finally {
         setIsDataLoading(false);
     }
-  }, []); // useCallback dependencies are empty as it doesn't depend on component state directly
+  }, []); // useCallback dependencies are minimal, functions are stable
 
   useEffect(() => {
-    // This effect now correctly handles the entire loading flow.
+    // Show loading screen if Firebase auth is in progress
     if (authLoading) {
-      // If Firebase auth is still loading, we wait.
       setIsDataLoading(true);
       return;
     }
     
+    // If we have a user and a valid token, load data from Drive
     if (user && accessToken) {
-      // If we have a user AND an access token, we can load data from drive.
       loadDataFromDrive(accessToken);
-    } else if (user && !accessToken) {
-        // This is the refresh case: user is logged in, but we need a new token.
-        // For this app's logic, we can treat this as "not fully logged in" and wait,
-        // or prompt sign-in again to get a fresh token. The UI will show the login button.
-        setIsDataLoading(false);
-        // Clear any old data
-        setTasks([]);
-        setCourses([]);
-        setGroups([]);
     } else {
-      // No user, not loading. Show the login page.
+      // If there's no user or no token (e.g., after logout or on initial visit)
+      // stop loading and show the login page with local data.
       setIsDataLoading(false);
       loadInitialLocalData();
     }
@@ -273,7 +265,7 @@ export default function Home() {
     );
   }
 
-  if (!user || !accessToken) {
+  if (!user) {
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-background p-4 text-center">
          <div className="flex items-center gap-2 mb-4">
