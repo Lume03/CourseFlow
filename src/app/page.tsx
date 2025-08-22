@@ -1,37 +1,82 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
-import type { Task, Course, Group, TaskStatus, FilterType } from '@/lib/types';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import type { Task, Course, Group, TaskStatus, FilterType, AppData } from '@/lib/types';
+import { useSession, signIn } from 'next-auth/react';
 import { initialTasks, initialCourses, initialGroups } from '@/lib/data';
 import AppHeader from '@/components/app-header';
 import KanbanBoard from '@/components/kanban-board';
 import KanbanSkeleton from '@/components/kanban-skeleton';
 import Confetti from '@/components/confetti';
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, isBefore, subDays, isAfter } from 'date-fns';
+import { Button } from '@/components/ui/button';
+import { Loader2 } from 'lucide-react';
+import { findOrCreateDataFile, readDataFile, writeDataFile } from '@/lib/drive';
 
 export default function Home() {
+  const { data: session, status } = useSession();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [filter, setFilter] = useState<FilterType>('all');
   const [isClient, setIsClient] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [dataFileId, setDataFileId] = useState<string | null>(null);
 
   useEffect(() => {
-    // In a real app, this would be an API call.
-    // We keep it in useEffect to ensure it runs only on the client.
-    setTasks(initialTasks);
-    setCourses(initialCourses);
-    setGroups(initialGroups);
     setIsClient(true);
   }, []);
 
+  const loadDataFromDrive = useCallback(async () => {
+    if (!session) return;
+    try {
+      const fileId = await findOrCreateDataFile();
+      setDataFileId(fileId);
+      const data = await readDataFile(fileId);
+      if (data) {
+        setTasks(data.tasks.map(t => ({ ...t, dueDate: t.dueDate ? new Date(t.dueDate) : undefined })));
+        setCourses(data.courses);
+        setGroups(data.groups);
+      } else { // New user, load initial data
+        setTasks(initialTasks);
+        setCourses(initialCourses);
+        setGroups(initialGroups);
+      }
+    } catch (error) {
+      console.error("Error loading data from Drive:", error);
+      // Fallback to initial data on error
+      setTasks(initialTasks);
+      setCourses(initialCourses);
+      setGroups(initialGroups);
+    }
+  }, [session]);
+  
+  useEffect(() => {
+    if (status === 'authenticated') {
+      loadDataFromDrive();
+    }
+  }, [status, loadDataFromDrive]);
+
+  const saveDataToDrive = useCallback(async (data: AppData) => {
+    if (!dataFileId) return;
+    setIsSaving(true);
+    try {
+      await writeDataFile(dataFileId, data);
+    } catch (error) {
+      console.error("Error saving data to Drive:", error);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [dataFileId]);
+  
   const handleTaskDrop = (taskId: string, newStatus: TaskStatus) => {
     let shouldShowConfetti = false;
     let isOverdueAndCompleted = false;
+    let updatedTasks: Task[] = [];
 
-    setTasks((prevTasks) =>
-      prevTasks.map((task) => {
+    setTasks((prevTasks) => {
+      updatedTasks = prevTasks.map((task) => {
         if (task.id === taskId) {
           if (newStatus === 'Terminado' && task.status !== 'Terminado') {
             shouldShowConfetti = true;
@@ -42,8 +87,10 @@ export default function Home() {
           return { ...task, status: newStatus };
         }
         return task;
-      })
-    );
+      });
+      saveDataToDrive({tasks: updatedTasks, courses, groups});
+      return updatedTasks;
+    });
 
     if (shouldShowConfetti) {
         setShowConfetti(true);
@@ -51,8 +98,12 @@ export default function Home() {
         
         if (isOverdueAndCompleted) {
             setTimeout(() => {
-                setTasks(prev => prev.filter(t => t.id !== taskId));
-            }, 3000); // Remove after confetti
+              setTasks(prev => {
+                const finalTasks = prev.filter(t => t.id !== taskId);
+                saveDataToDrive({tasks: finalTasks, courses, groups});
+                return finalTasks;
+              });
+            }, 3000);
         }
     }
   };
@@ -63,22 +114,30 @@ export default function Home() {
       id: `task-${Date.now()}`,
       status: 'No Iniciado',
     };
-    setTasks((prevTasks) => [...prevTasks, taskToAdd]);
+    const updatedTasks = [...tasks, taskToAdd];
+    setTasks(updatedTasks);
+    saveDataToDrive({tasks: updatedTasks, courses, groups});
   };
   
   const handleAddGroup = (name: string) => {
     const newGroup: Group = { id: `group-${Date.now()}`, name };
-    setGroups(prev => [...prev, newGroup]);
+    const updatedGroups = [...groups, newGroup];
+    setGroups(updatedGroups);
+    saveDataToDrive({tasks, courses, groups: updatedGroups});
   };
 
   const handleDeleteGroup = (id: string) => {
-    setGroups(prev => prev.filter(g => g.id !== id));
-    // Also delete associated courses and tasks
+    const updatedGroups = groups.filter(g => g.id !== id);
     const coursesToDelete = courses.filter(c => c.groupId === id);
     const courseIdsToDelete = coursesToDelete.map(c => c.id);
-    setCourses(prev => prev.filter(c => c.groupId !== id));
-    setTasks(prev => prev.filter(t => !courseIdsToDelete.includes(t.courseId)));
-    // If the active filter was this group, reset to 'all'
+    const updatedCourses = courses.filter(c => c.groupId !== id);
+    const updatedTasks = tasks.filter(t => !courseIdsToDelete.includes(t.courseId));
+    
+    setGroups(updatedGroups);
+    setCourses(updatedCourses);
+    setTasks(updatedTasks);
+    saveDataToDrive({tasks: updatedTasks, courses: updatedCourses, groups: updatedGroups});
+
     if (filter === id) {
       setFilter('all');
     }
@@ -86,13 +145,17 @@ export default function Home() {
 
   const handleAddCourse = (name: string, color: string, groupId: string) => {
     const newCourse: Course = { id: `course-${Date.now()}`, name, color, groupId };
-    setCourses(prev => [...prev, newCourse]);
+    const updatedCourses = [...courses, newCourse];
+    setCourses(updatedCourses);
+    saveDataToDrive({tasks, courses: updatedCourses, groups});
   };
 
   const handleDeleteCourse = (id: string) => {
-    setCourses(prev => prev.filter(c => c.id !== id));
-    // Also delete associated tasks
-    setTasks(prev => prev.filter(t => t.courseId !== id));
+    const updatedCourses = courses.filter(c => c.id !== id);
+    const updatedTasks = tasks.filter(t => t.courseId !== id);
+    setCourses(updatedCourses);
+    setTasks(updatedTasks);
+    saveDataToDrive({tasks: updatedTasks, courses: updatedCourses, groups});
   };
   
   const processedTasks = useMemo(() => {
@@ -110,16 +173,12 @@ export default function Home() {
 
   const filteredTasks = useMemo(() => {
     const now = new Date();
-    // Filter out completed tasks that are past their due date, but give them a moment to be on the board
     const tasksToShow = processedTasks.filter(task => {
         if (task.status === 'Terminado' && task.dueDate && isAfter(new Date(), task.dueDate)) {
-            // This is a simple way to handle it. In handleTaskDrop we add a delay
-            // before removing, which is a better UX. This filter will clean up on reload.
             return false;
         }
         return true;
     });
-
 
     switch (filter) {
       case 'this-week':
@@ -143,11 +202,41 @@ export default function Home() {
       case 'all':
         return tasksToShow;
       default:
-        // This handles group filtering, where filter is a groupId
         const groupCourses = courses.filter(c => c.groupId === filter).map(c => c.id);
         return tasksToShow.filter(task => groupCourses.includes(task.courseId));
     }
   }, [processedTasks, filter, courses]);
+
+  if (status === 'loading' || (status === 'authenticated' && !dataFileId)) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+            <p className="text-muted-foreground">Cargando tus datos...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === 'unauthenticated') {
+    return (
+      <div className="flex h-screen w-full flex-col items-center justify-center bg-background p-4 text-center">
+         <div className="flex items-center gap-2 mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-8 w-8 text-primary">
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+            </svg>
+            <h1 className="text-3xl font-bold font-headline text-foreground">CourseFlow Kanban</h1>
+        </div>
+        <p className="max-w-md mb-8 text-muted-foreground">
+          Organiza tus cursos, gestiona tus tareas y sincroniza tu progreso en todos tus dispositivos. Inicia sesión para empezar.
+        </p>
+        <Button onClick={() => signIn('google')}>
+          <svg className="mr-2 h-4 w-4" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512"><path fill="currentColor" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 126 21.2 172.9 56.5l-63.7 61.9C331.4 99.2 292.1 82 248 82c-73.3 0-133.4 58.9-133.4 131.5s60.1 131.5 133.4 131.5c82.3 0 114.3-55 119.5-83.3H248v-61.4h235.2c2.4 12.3 3.8 24.7 3.8 37.8z"></path></svg>
+          Iniciar Sesión con Google
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-full flex-col bg-background relative">
@@ -162,6 +251,7 @@ export default function Home() {
         onDeleteGroup={handleDeleteGroup}
         onAddCourse={handleAddCourse}
         onDeleteCourse={handleDeleteCourse}
+        isSaving={isSaving}
       />
       <main className="flex-1 overflow-x-auto p-4 md:p-6 lg:p-8">
         {isClient ? (

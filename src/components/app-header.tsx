@@ -2,7 +2,7 @@ import type { FilterType, Course, Group, Task } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { AddTaskDialog } from './add-task-dialog';
 import { ManageDataSheet } from './manage-data-sheet';
-import { Separator } from './ui/separator';
+import { useSession, signOut } from 'next-auth/react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,7 +12,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ListFilter } from 'lucide-react';
+import { ListFilter, LogOut, Loader2 } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
+
 
 interface AppHeaderProps {
   filter: FilterType;
@@ -24,6 +26,7 @@ interface AppHeaderProps {
   onDeleteGroup: (id: string) => void;
   onAddCourse: (name: string, color: string, groupId: string) => void;
   onDeleteCourse: (id: string) => void;
+  isSaving: boolean;
 }
 
 export default function AppHeader({ 
@@ -35,8 +38,11 @@ export default function AppHeader({
   onAddGroup,
   onDeleteGroup,
   onAddCourse,
-  onDeleteCourse
+  onDeleteCourse,
+  isSaving
 }: AppHeaderProps) {
+  const { data: session } = useSession();
+
   const timeFilters: { value: FilterType; label: string }[] = [
     { value: 'all', label: 'Todas las tareas' },
     { value: 'this-week', label: 'Esta semana' },
@@ -71,7 +77,9 @@ export default function AppHeader({
         </svg>
         <h1 className="text-lg font-semibold font-headline text-foreground hidden md:block">CourseFlow Kanban</h1>
       </div>
+
       <div className="ml-auto flex items-center gap-2">
+         {isSaving && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
          <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="md:w-[180px] justify-start">
@@ -109,6 +117,32 @@ export default function AppHeader({
           onAddCourse={onAddCourse}
           onDeleteCourse={onDeleteCourse}
         />
+        
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="relative h-8 w-8 rounded-full">
+                    <Avatar className="h-8 w-8">
+                        <AvatarImage src={session?.user?.image ?? ''} alt={session?.user?.name ?? ''} />
+                        <AvatarFallback>{session?.user?.name?.[0]}</AvatarFallback>
+                    </Avatar>
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56" align="end" forceMount>
+                <DropdownMenuLabel className="font-normal">
+                <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-medium leading-none">{session?.user?.name}</p>
+                    <p className="text-xs leading-none text-muted-foreground">
+                    {session?.user?.email}
+                    </p>
+                </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => signOut()}>
+                    <LogOut className="mr-2 h-4 w-4" />
+                    <span>Cerrar sesión</span>
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

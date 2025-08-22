@@ -24,3 +24,10 @@ export interface Group {
 }
 
 export type FilterType = string;
+
+// Structure for the data saved in Google Drive
+export interface AppData {
+  tasks: Task[];
+  courses: Course[];
+  groups: Group[];
+}
