@@ -6,7 +6,8 @@ import { initialTasks, initialCourses, initialGroups } from '@/lib/data';
 import AppHeader from '@/components/app-header';
 import KanbanBoard from '@/components/kanban-board';
 import KanbanSkeleton from '@/components/kanban-skeleton';
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import Confetti from '@/components/confetti';
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, isBefore, subDays, isAfter } from 'date-fns';
 
 export default function Home() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -14,6 +15,7 @@ export default function Home() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [filter, setFilter] = useState<FilterType>('all');
   const [isClient, setIsClient] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
 
   useEffect(() => {
     // In a real app, this would be an API call.
@@ -25,13 +27,36 @@ export default function Home() {
   }, []);
 
   const handleTaskDrop = (taskId: string, newStatus: TaskStatus) => {
-    setTasks((prevTasks) =>
-      prevTasks.map((task) =>
-        task.id === taskId ? { ...task, status: newStatus } : task
-      )
-    );
-  };
+    let shouldShowConfetti = false;
+    let isOverdueAndCompleted = false;
 
+    setTasks((prevTasks) =>
+      prevTasks.map((task) => {
+        if (task.id === taskId) {
+          if (newStatus === 'Terminado' && task.status !== 'Terminado') {
+            shouldShowConfetti = true;
+            if (task.dueDate && isBefore(task.dueDate, new Date())) {
+                isOverdueAndCompleted = true;
+            }
+          }
+          return { ...task, status: newStatus };
+        }
+        return task;
+      })
+    );
+
+    if (shouldShowConfetti) {
+        setShowConfetti(true);
+        setTimeout(() => setShowConfetti(false), 4000);
+        
+        if (isOverdueAndCompleted) {
+            setTimeout(() => {
+                setTasks(prev => prev.filter(t => t.id !== taskId));
+            }, 3000); // Remove after confetti
+        }
+    }
+  };
+  
   const handleAddTask = (newTask: Omit<Task, 'id' | 'status'>) => {
     const taskToAdd: Task = {
       ...newTask,
@@ -69,16 +94,38 @@ export default function Home() {
     // Also delete associated tasks
     setTasks(prev => prev.filter(t => t.courseId !== id));
   };
+  
+  const processedTasks = useMemo(() => {
+    const now = new Date();
+    const oneDayFromNow = subDays(now, -1);
+    
+    return tasks.map(task => {
+        const isUrgent = task.dueDate 
+          && task.status !== 'Terminado' 
+          && (isBefore(task.dueDate, oneDayFromNow));
+        return { ...task, isUrgent: !!isUrgent };
+    });
+  }, [tasks]);
+
 
   const filteredTasks = useMemo(() => {
     const now = new Date();
-    let filtered = tasks;
+    // Filter out completed tasks that are past their due date, but give them a moment to be on the board
+    const tasksToShow = processedTasks.filter(task => {
+        if (task.status === 'Terminado' && task.dueDate && isAfter(new Date(), task.dueDate)) {
+            // This is a simple way to handle it. In handleTaskDrop we add a delay
+            // before removing, which is a better UX. This filter will clean up on reload.
+            return false;
+        }
+        return true;
+    });
+
 
     switch (filter) {
       case 'this-week':
         const startOfThisWeek = startOfWeek(now, { weekStartsOn: 1 });
         const endOfThisWeek = endOfWeek(now, { weekStartsOn: 1 });
-        return tasks.filter(
+        return tasksToShow.filter(
           (task) =>
             task.dueDate &&
             task.dueDate >= startOfThisWeek &&
@@ -87,23 +134,24 @@ export default function Home() {
       case 'this-month':
         const startOfThisMonth = startOfMonth(now);
         const endOfThisMonth = endOfMonth(now);
-        return tasks.filter(
+        return tasksToShow.filter(
           (task) =>
             task.dueDate &&
             task.dueDate >= startOfThisMonth &&
             task.dueDate <= endOfThisMonth
         );
       case 'all':
-        return tasks;
+        return tasksToShow;
       default:
         // This handles group filtering, where filter is a groupId
         const groupCourses = courses.filter(c => c.groupId === filter).map(c => c.id);
-        return tasks.filter(task => groupCourses.includes(task.courseId));
+        return tasksToShow.filter(task => groupCourses.includes(task.courseId));
     }
-  }, [tasks, filter, courses]);
+  }, [processedTasks, filter, courses]);
 
   return (
-    <div className="flex h-screen w-full flex-col bg-background">
+    <div className="flex h-screen w-full flex-col bg-background relative">
+      {showConfetti && <Confetti />}
       <AppHeader 
         filter={filter} 
         setFilter={setFilter} 

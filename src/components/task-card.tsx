@@ -3,6 +3,8 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/com
 import { Calendar, GripVertical } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { cn } from '@/lib/utils';
+
 
 interface TaskCardProps {
   task: Task;
@@ -17,8 +19,11 @@ export default function TaskCard({ task }: TaskCardProps) {
     <Card
       draggable
       onDragStart={handleDragStart}
-      className="cursor-grab active:cursor-grabbing shadow-md hover:shadow-lg transition-shadow"
-      style={{ borderLeft: `5px solid ${task.color}` }}
+      className={cn(
+        'cursor-grab active:cursor-grabbing shadow-md hover:shadow-lg transition-all duration-300',
+        task.isUrgent && 'border-red-500 shadow-red-500/30'
+      )}
+      style={{ borderLeft: `5px solid ${task.isUrgent ? '#ef4444' : task.color}` }}
     >
       <CardHeader className="p-4 pb-2 flex-row items-start justify-between">
         <CardTitle className="text-base font-semibold font-headline">{task.title}</CardTitle>

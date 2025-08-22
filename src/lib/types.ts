@@ -8,6 +8,7 @@ export interface Task {
   color: string;
   status: TaskStatus;
   courseId: string;
+  isUrgent?: boolean;
 }
 
 export interface Course {
