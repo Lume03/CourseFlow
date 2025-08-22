@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, createContext, useContext } from 'react';
-import { onAuthStateChanged, signInWithPopup, signOut, GoogleAuthProvider, getAdditionalUserInfo, OAuthProvider } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, signOut, GoogleAuthProvider } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import type { User } from 'firebase/auth';
 
@@ -23,6 +23,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
+      if (!user) {
+        setAccessToken(null);
+      }
       setLoading(false);
     });
     return () => unsubscribe();
