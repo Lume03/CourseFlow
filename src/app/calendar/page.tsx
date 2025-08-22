@@ -3,12 +3,12 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '@/components/auth-provider';
-import { Loader2, Calendar as CalendarIcon, ArrowLeft, ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
+import { Loader2, Calendar as CalendarIcon, ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { format, parseISO, startOfWeek, endOfWeek, addDays, eachDayOfInterval, isSameDay, isToday, addWeeks, subWeeks, getHours, getMinutes, differenceInMinutes } from 'date-fns';
+import { format, parseISO, startOfWeek, addDays, eachDayOfInterval, isSameDay, isToday, addWeeks, subWeeks, getHours, getMinutes, differenceInMinutes, areIntervalsOverlapping, max, min } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import type { Task, Course, Group } from '@/lib/types';
@@ -25,6 +25,14 @@ interface CalendarEvent {
   isAllDay: boolean;
   linkedCourseColor?: string;
 }
+
+interface PositionedEvent extends CalendarEvent {
+  top: number;
+  height: number;
+  width: number;
+  left: number;
+}
+
 
 interface CalendarListItem {
     id: string;
@@ -102,7 +110,7 @@ export default function CalendarPage() {
       const calendars: CalendarListItem[] = calendarList.items;
 
       const timeMin = startOfWeek(date, { weekStartsOn: 1 }).toISOString();
-      const timeMax = endOfWeek(date, { weekStartsOn: 1 }).toISOString();
+      const timeMax = endOfWeek(addDays(startOfWeek(date, { weekStartsOn: 1 }), 6), { weekStartsOn: 1 }).toISOString();
 
       const allEventsPromises = calendars.map(cal => {
         const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=100`;
@@ -157,7 +165,6 @@ export default function CalendarPage() {
       return;
     }
     
-    // Fetch tasks first, then fetch calendar events using the courses data
     const loadAllData = async () => {
       await fetchTaskData(accessToken);
     }
@@ -167,15 +174,14 @@ export default function CalendarPage() {
 
   // This effect runs once courses are loaded, or when the date changes
   useEffect(() => {
-    if (accessToken && courses.length > 0) {
+    if (accessToken && courses.length >= 0) { // Check for >=0 to run even if there are no courses
       fetchCalendarEvents(accessToken, currentDate, courses);
     }
   }, [accessToken, currentDate, courses, fetchCalendarEvents]);
   
   const weekDays = useMemo(() => {
       const start = startOfWeek(currentDate, { weekStartsOn: 1 });
-      const end = endOfWeek(currentDate, { weekStartsOn: 1 });
-      return eachDayOfInterval({ start, end });
+      return eachDayOfInterval({ start, end: addDays(start, 6) });
   }, [currentDate]);
 
   const filteredTasks = useMemo(() => {
@@ -190,11 +196,62 @@ export default function CalendarPage() {
     return filtered.sort((a, b) => (a.dueDate as Date).getTime() - (b.dueDate as Date).getTime());
   }, [tasks, courses, selectedGroup, selectedCourse]);
 
-  const getTimedEventsForDay = (day: Date) => calendarEvents.filter(event => !event.isAllDay && isSameDay(parseISO(event.start.dateTime), day));
-  const getAllDayEventsAndTasksForDay = (day: Date) => {
-      const gCalAllDay = calendarEvents.filter(event => event.isAllDay && isSameDay(parseISO(event.start.date), day));
-      const localTasks = tasks.filter(task => task.dueDate && isSameDay(task.dueDate, day));
-      return { gCalAllDay, localTasks };
+  const getEventsForDay = (day: Date) => {
+    const gCalTimed = calendarEvents.filter(event => !event.isAllDay && isSameDay(parseISO(event.start.dateTime), day));
+    const gCalAllDay = calendarEvents.filter(event => event.isAllDay && isSameDay(parseISO(event.start.date), day));
+    return { gCalTimed, gCalAllDay };
+  };
+
+  const positionEvents = (events: CalendarEvent[]): PositionedEvent[] => {
+    if (events.length === 0) return [];
+  
+    const sortedEvents = events.sort((a, b) => {
+      const aStart = parseISO(a.start.dateTime).getTime();
+      const bStart = parseISO(b.start.dateTime).getTime();
+      return aStart - bStart;
+    });
+  
+    let columns: CalendarEvent[][] = [];
+    
+    sortedEvents.forEach(event => {
+      let placed = false;
+      for (const col of columns) {
+        const lastEventInCol = col[col.length - 1];
+        if (!areIntervalsOverlapping(
+          { start: parseISO(event.start.dateTime), end: parseISO(event.end.dateTime) },
+          { start: parseISO(lastEventInCol.start.dateTime), end: parseISO(lastEventInCol.end.dateTime) }
+        )) {
+          col.push(event);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        columns.push([event]);
+      }
+    });
+  
+    const positioned: PositionedEvent[] = [];
+    const totalColumns = columns.length;
+  
+    columns.forEach((col, colIndex) => {
+      col.forEach(event => {
+        const start = parseISO(event.start.dateTime);
+        const end = parseISO(event.end.dateTime);
+        const startHour = getHours(start) + getMinutes(start) / 60;
+        const durationMinutes = differenceInMinutes(end, start);
+        
+        positioned.push({
+          ...event,
+          top: startHour * 4, // 4rem per hour (h-16)
+          height: (durationMinutes / 60) * 4,
+          width: 100 / totalColumns,
+          left: colIndex * (100 / totalColumns),
+        });
+      });
+    });
+  
+    return positioned;
   };
 
   const handlePrevWeek = () => setCurrentDate(subWeeks(currentDate, 1));
@@ -214,8 +271,8 @@ export default function CalendarPage() {
   
   return (
     <div className="flex h-screen w-full flex-col bg-background">
-       <header className="flex h-16 shrink-0 items-center border-b bg-background/80 backdrop-blur-sm px-4 md:px-6 sticky top-0 z-20">
-          <Button asChild variant="outline" size="icon" className="mr-4">
+       <header className="flex h-16 shrink-0 items-center border-b bg-background/80 backdrop-blur-sm px-4 md:px-6 sticky top-0 z-30">
+         <Button asChild variant="outline" size="icon" className="mr-4">
            <Link href="/">
               <ArrowLeft className="h-4 w-4" />
            </Link>
@@ -274,7 +331,7 @@ export default function CalendarPage() {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 flex flex-col overflow-hidden">
+        <main className="flex-1 flex flex-col overflow-auto">
            {isLoading ? (
              <div className="flex h-full items-center justify-center">
                 <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -290,18 +347,38 @@ export default function CalendarPage() {
                 </Card>
              </div>
            ) : (
-             <>
-              <div className="grid grid-cols-[auto,1fr] sticky top-16 bg-background z-10">
+             <div className="flex-1 flex flex-col">
+              <div className="grid grid-cols-[auto,1fr] sticky top-16 bg-background z-20">
                 <div className="w-14"></div>
                 <div className="grid grid-cols-7 border-l">
                   {weekDays.map(day => (
-                    <div key={day.toString()} className="p-2 text-center border-r">
+                    <div key={day.toString()} className="p-2 text-center border-r border-b">
                        <p className="text-xs uppercase font-semibold text-muted-foreground">{format(day, 'EEE', { locale: es })}</p>
                        <p className={cn("text-2xl font-headline", isToday(day) && "text-primary")}>{format(day, 'd')}</p>
                     </div>
                   ))}
                 </div>
               </div>
+
+              {/* All day section */}
+              <div className="grid grid-cols-[auto,1fr] sticky top-[125px] bg-background z-20">
+                  <div className="w-14 text-center text-xs py-1.5 text-muted-foreground">Todo el día</div>
+                  <div className="grid grid-cols-7 border-l">
+                      {weekDays.map((day, dayIndex) => (
+                          <div key={`allday-${day.toString()}`} className="border-r border-b p-1 min-h-[34px] space-y-1">
+                              {(() => {
+                                  const { gCalAllDay } = getEventsForDay(day);
+                                  return gCalAllDay.map(event => (
+                                      <a href={event.htmlLink} target="_blank" rel="noopener noreferrer" key={event.id}>
+                                          <div className="p-1 rounded text-black/80 text-xs font-semibold" style={{ backgroundColor: event.linkedCourseColor || event.color || '#3174ad' }}>{event.summary}</div>
+                                      </a>
+                                  ));
+                              })()}
+                          </div>
+                      ))}
+                  </div>
+              </div>
+              
               <div className="flex-1 overflow-y-auto">
                 <div className="grid grid-cols-[auto,1fr]">
                   {/* Time Gutter */}
@@ -320,60 +397,48 @@ export default function CalendarPage() {
                       <div key={hour} className="col-span-7 h-16 border-t" style={{gridRowStart: hour + 1}}></div>
                     ))}
                     {weekDays.map((day, dayIndex) => (
-                      <div key={day.toString()} className="border-r relative" style={{ gridColumnStart: dayIndex + 1, gridRowStart: 1, gridRowEnd: 26 }}>
-                         {/* All-day Events and Tasks */}
-                        <div className="sticky top-0 bg-background/80 backdrop-blur-sm z-10 p-1 space-y-1 border-b min-h-[34px]">
-                          {(() => {
-                            const { gCalAllDay, localTasks } = getAllDayEventsAndTasksForDay(day);
-                            return (
-                              <>
-                                {gCalAllDay.map(event => (
-                                  <a href={event.htmlLink} target="_blank" rel="noopener noreferrer" key={event.id}>
-                                    <div className="p-1 rounded text-white text-xs font-semibold" style={{ backgroundColor: event.linkedCourseColor || event.color || '#3174ad' }}>{event.summary}</div>
-                                  </a>
-                                ))}
-                                {localTasks.map(task => (
-                                  <div key={task.id} className="p-1 rounded text-white text-xs font-semibold" style={{ backgroundColor: task.color || '#3174ad' }}>{task.title}</div>
-                                ))}
-                              </>
-                            );
-                          })()}
-                        </div>
+                      <div key={day.toString()} className="border-r relative" style={{ gridColumnStart: dayIndex + 1, gridRow: '1 / span 25' }}>
                         
                         {/* Timed Events */}
-                        {getTimedEventsForDay(day).map(event => {
-                          const start = parseISO(event.start.dateTime);
-                          const end = parseISO(event.end.dateTime);
-                          const startHour = getHours(start) + getMinutes(start) / 60;
-                          const durationMinutes = differenceInMinutes(end, start);
-                          const top = startHour * 4; // 4rem per hour (h-16)
-                          const height = (durationMinutes / 60) * 4;
-                          
-                          return (
-                            <a 
-                              href={event.htmlLink} 
-                              target="_blank" 
-                              rel="noopener noreferrer" 
-                              key={event.id}
-                              className="absolute w-full px-1"
-                              style={{ top: `${top}rem`, height: `${height}rem`}}
-                            >
-                               <div 
-                                className="h-full w-full rounded-md p-2 text-white overflow-hidden" 
-                                style={{ backgroundColor: event.linkedCourseColor || event.color || '#3174ad' }}
+                        {(() => {
+                          const { gCalTimed } = getEventsForDay(day);
+                          const positionedEvents = positionEvents(gCalTimed);
+
+                          return positionedEvents.map(event => {
+                            const start = parseISO(event.start.dateTime);
+                            const end = parseISO(event.end.dateTime);
+                            
+                            return (
+                              <a 
+                                href={event.htmlLink} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                key={event.id}
+                                className="absolute px-1"
+                                style={{ 
+                                  top: `${event.top}rem`, 
+                                  height: `${event.height}rem`,
+                                  left: `${event.left}%`,
+                                  width: `${event.width}%`
+                                }}
                               >
-                                <p className="text-xs font-bold">{event.summary}</p>
-                                <p className="text-[10px]">{format(start, 'h:mm a')} - {format(end, 'h:mm a')}</p>
-                              </div>
-                            </a>
-                          )
-                        })}
+                                 <div 
+                                  className="h-full w-full rounded-md p-2 text-black/80 overflow-hidden" 
+                                  style={{ backgroundColor: event.linkedCourseColor || event.color || '#3174ad' }}
+                                >
+                                  <p className="text-xs font-bold">{event.summary}</p>
+                                  <p className="text-[10px]">{format(start, 'h:mm a')} - {format(end, 'h:mm a')}</p>
+                                </div>
+                              </a>
+                            )
+                          });
+                        })()}
                       </div>
                     ))}
                   </div>
                 </div>
               </div>
-             </>
+             </div>
            )}
         </main>
       </div>
