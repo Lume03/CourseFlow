@@ -33,21 +33,23 @@ export default function Home() {
     setIsClient(true);
   }, []);
   
-  const loadInitialLocalData = () => {
+  const loadInitialLocalData = useCallback(() => {
     setTasks(initialTasks);
     setCourses(initialCourses);
     setGroups(initialGroups);
-  };
+  }, []);
   
   useEffect(() => {
     const loadData = async () => {
-      // Wait for authentication to resolve and for the access token to be available.
-      if (authLoading || !accessToken) {
-        // If auth is not loading anymore but there's no user, load local data.
+      // Don't do anything if auth is still loading, or if we are not logged in and have no token
+      if (authLoading || !user || !accessToken) {
+        // If auth has finished loading and we still don't have a user, load local data
         if (!authLoading && !user) {
           loadInitialLocalData();
           setIsDataLoading(false);
         }
+        // If auth is done, we have a user, but no token yet, just wait.
+        // The AuthProvider will provide the token.
         return;
       }
 
@@ -64,7 +66,6 @@ export default function Home() {
            setCourses(data.courses);
            setGroups(data.groups);
         } else {
-          // File might be new or empty, so set initial data and save it.
           const initialData = { tasks: initialTasks, courses: initialCourses, groups: initialGroups };
           setTasks(initialData.tasks);
           setCourses(initialData.courses);
@@ -73,7 +74,7 @@ export default function Home() {
         }
       } catch (error) {
         console.error("Error during data loading flow:", error);
-        setDriveError("No se pudieron cargar los datos de Google Drive. Usando datos de ejemplo. Por favor, recarga la página.");
+        setDriveError("No se pudieron cargar los datos de Google Drive. Usando datos de ejemplo.");
         loadInitialLocalData();
       } finally {
         setIsDataLoading(false);
@@ -81,52 +82,34 @@ export default function Home() {
     };
   
     loadData();
-  }, [user, accessToken, authLoading]);
+  }, [user, accessToken, authLoading, loadInitialLocalData]);
 
 
-  const saveDataToDrive = useCallback(async () => {
-    // We use a function form of setTasks to get the most up-to-date state
-    setTasks(currentTasks => {
-        setCourses(currentCourses => {
-            setGroups(currentGroups => {
-                if (!dataFileId || !accessToken) {
-                    console.warn("Attempted to save without dataFileId or accessToken. Aborting save.");
-                    return currentGroups; // Return current state without saving
-                }
+  const saveDataToDrive = useCallback(async (dataToSave: AppData) => {
+    if (!dataFileId || !accessToken) {
+      console.warn("Attempted to save without dataFileId or accessToken. Aborting save.");
+      return;
+    }
 
-                setIsSaving(true);
-                setDriveError(null);
-                
-                const dataToSave: AppData = {
-                    tasks: currentTasks,
-                    courses: currentCourses,
-                    groups: currentGroups,
-                };
-                
-                writeDataFile(accessToken, dataFileId, dataToSave)
-                    .catch(error => {
-                        console.error("Error saving data to Drive:", error);
-                        setDriveError("No se pudieron guardar los cambios en Google Drive.");
-                    })
-                    .finally(() => {
-                        setTimeout(() => setIsSaving(false), 500);
-                    });
-                
-                return currentGroups;
-            });
-            return currentCourses;
-        });
-        return currentTasks;
-    });
+    setIsSaving(true);
+    setDriveError(null);
+    
+    try {
+        await writeDataFile(accessToken, dataFileId, dataToSave);
+    } catch (error) {
+        console.error("Error saving data to Drive:", error);
+        setDriveError("No se pudieron guardar los cambios en Google Drive.");
+    } finally {
+        setTimeout(() => setIsSaving(false), 500);
+    }
   }, [dataFileId, accessToken]);
   
-  // Effect to save data whenever tasks, courses, or groups change
   useEffect(() => {
-    // Don't save if data is loading or if there's no data file ID (e.g., logged out)
     if (isDataLoading || !dataFileId) {
       return;
     }
-    saveDataToDrive();
+    const dataToSave = { tasks, courses, groups };
+    saveDataToDrive(dataToSave);
   }, [tasks, courses, groups, dataFileId, isDataLoading, saveDataToDrive]);
 
 
@@ -134,32 +117,32 @@ export default function Home() {
     let shouldShowConfetti = false;
     let isOverdueAndCompleted = false;
     
-    const updatedTasks = tasks.map((task) => {
-      if (task.id === taskId) {
-        if (newStatus === 'Terminado' && task.status !== 'Terminado') {
-          shouldShowConfetti = true;
-          if (task.dueDate && isBefore(task.dueDate, new Date())) {
-              isOverdueAndCompleted = true;
+    setTasks(currentTasks => {
+      const updatedTasks = currentTasks.map((task) => {
+        if (task.id === taskId) {
+          if (newStatus === 'Terminado' && task.status !== 'Terminado') {
+            shouldShowConfetti = true;
+            if (task.dueDate && isBefore(task.dueDate, new Date())) {
+                isOverdueAndCompleted = true;
+            }
           }
+          return { ...task, status: newStatus };
         }
-        return { ...task, status: newStatus };
+        return task;
+      });
+
+      if (shouldShowConfetti) {
+          setShowConfetti(true);
+          setTimeout(() => setShowConfetti(false), 4000);
+          
+          if (isOverdueAndCompleted) {
+              setTimeout(() => {
+                setTasks(currentTasks => currentTasks.filter(t => t.id !== taskId));
+              }, 3000);
+          }
       }
-      return task;
+      return updatedTasks;
     });
-
-    setTasks(updatedTasks);
-    // Note: saveDataToDrive is now called by the useEffect hook
-
-    if (shouldShowConfetti) {
-        setShowConfetti(true);
-        setTimeout(() => setShowConfetti(false), 4000);
-        
-        if (isOverdueAndCompleted) {
-            setTimeout(() => {
-              setTasks(currentTasks => currentTasks.filter(t => t.id !== taskId));
-            }, 3000);
-        }
-    }
   };
   
   const handleAddTask = (newTask: Omit<Task, 'id' | 'status'>) => {
@@ -187,16 +170,18 @@ export default function Home() {
   };
 
   const handleDeleteGroup = (id: string) => {
-    const coursesToDelete = courses.filter(c => c.groupId === id);
-    const courseIdsToDelete = coursesToDelete.map(c => c.id);
-    
-    setGroups(currentGroups => currentGroups.filter(g => g.id !== id));
-    setCourses(currentCourses => currentCourses.filter(c => c.groupId !== id));
-    setTasks(currentTasks => currentTasks.filter(t => !courseIdsToDelete.includes(t.courseId)));
+    setGroups(currentGroups => {
+        const coursesToDelete = courses.filter(c => c.groupId === id);
+        const courseIdsToDelete = coursesToDelete.map(c => c.id);
+        
+        setCourses(currentCourses => currentCourses.filter(c => c.groupId !== id));
+        setTasks(currentTasks => currentTasks.filter(t => !courseIdsToDelete.includes(t.courseId)));
 
-    if (filter === id) {
-      setFilter('all');
-    }
+        if (filter === id) {
+          setFilter('all');
+        }
+        return currentGroups.filter(g => g.id !== id);
+    });
   };
 
   const handleAddCourse = (name: string, color: string, groupId: string) => {
@@ -205,8 +190,10 @@ export default function Home() {
   };
 
   const handleDeleteCourse = (id: string) => {
-    setCourses(currentCourses => currentCourses.filter(c => c.id !== id));
-    setTasks(currentTasks => currentTasks.filter(t => t.courseId !== id));
+    setCourses(currentCourses => {
+        setTasks(currentTasks => currentTasks.filter(t => t.courseId !== id));
+        return currentCourses.filter(c => c.id !== id)
+    });
   };
   
   const processedTasks = useMemo(() => {
@@ -258,7 +245,7 @@ export default function Home() {
     }
   }, [processedTasks, filter, courses]);
 
-  if (authLoading || (!user && isDataLoading)) {
+  if (authLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -342,5 +329,3 @@ export default function Home() {
     </div>
   );
 }
-
-    
