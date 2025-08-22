@@ -15,9 +15,9 @@ import { findOrCreateDataFile, readDataFile, writeDataFile } from '@/lib/drive';
 
 export default function Home() {
   const { user, accessToken, loading: authLoading, signIn } = useAuth();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
+  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [courses, setCourses] = useState<Course[]>(initialCourses);
+  const [groups, setGroups] = useState<Group[]>(initialGroups);
   const [filter, setFilter] = useState<FilterType>('all');
   const [isClient, setIsClient] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
@@ -30,47 +30,59 @@ export default function Home() {
     setIsClient(true);
   }, []);
 
-  const loadDataFromDrive = useCallback(async (token: string) => {
-    if (!token) return;
-    setIsDataLoading(true);
-    setDriveError(null);
-    try {
-      const fileId = await findOrCreateDataFile(token);
-      setDataFileId(fileId);
-      const data = await readDataFile(token, fileId);
-      if (data) {
-        setTasks(data.tasks.map(t => ({ ...t, dueDate: t.dueDate ? new Date(t.dueDate) : undefined })));
-        setCourses(data.courses);
-        setGroups(data.groups);
-      } else { // New user or empty file, load initial data
-        setTasks(initialTasks);
-        setCourses(initialCourses);
-        setGroups(initialGroups);
-      }
-    } catch (error) {
-      console.error("Error loading data from Drive:", error);
-      setDriveError("No se pudieron cargar los datos de Google Drive. Por favor, intenta recargar la página.");
-      // Fallback to initial data on error
-      setTasks(initialTasks);
-      setCourses(initialCourses);
-      setGroups(initialGroups);
-    } finally {
-        setIsDataLoading(false);
-    }
-  }, []);
-  
   useEffect(() => {
+    // This effect handles the initial data loading sequence.
+    if (authLoading) {
+      // If auth state is still being determined, do nothing and wait.
+      // The loading screen will be shown.
+      setIsDataLoading(true);
+      return;
+    }
+
     if (user && accessToken) {
-        loadDataFromDrive(accessToken);
-    } else if (!authLoading && !user) {
-      // If not logged in and not in the process of logging in, stop loading.
+      // User is logged in and we have a token, start loading data from Drive.
+      const loadData = async () => {
+        setIsDataLoading(true);
+        setDriveError(null);
+        try {
+          const fileId = await findOrCreateDataFile(accessToken);
+          setDataFileId(fileId);
+          const data = await readDataFile(accessToken, fileId);
+          if (data && data.tasks && data.courses && data.groups) {
+             setTasks(data.tasks.map(t => ({ ...t, dueDate: t.dueDate ? new Date(t.dueDate) : undefined })));
+             setCourses(data.courses);
+             setGroups(data.groups);
+          } else {
+            // File is new or empty, use initial data.
+            // This will also be saved back to Drive if any changes are made.
+            setTasks(initialTasks);
+            setCourses(initialCourses);
+            setGroups(initialGroups);
+          }
+        } catch (error) {
+          console.error("Error loading data from Drive:", error);
+          setDriveError("No se pudieron cargar los datos de Google Drive. Usando datos de ejemplo.");
+          // Fallback to initial data on error
+          setTasks(initialTasks);
+          setCourses(initialCourses);
+          setGroups(initialGroups);
+        } finally {
+            setIsDataLoading(false);
+        }
+      };
+      loadData();
+    } else if (!user) {
+      // User is not logged in, stop the loading process.
       setIsDataLoading(false);
     }
-  }, [user, accessToken, authLoading, loadDataFromDrive]);
+     // Key dependencies: user and accessToken will trigger this when they become available.
+  }, [user, accessToken, authLoading]);
+
 
   const saveDataToDrive = useCallback(async (data: AppData) => {
     if (!dataFileId || !accessToken) return;
     setIsSaving(true);
+    setDriveError(null); // Clear previous errors on a new save attempt
     try {
       await writeDataFile(accessToken, dataFileId, data);
     } catch (error) {
