@@ -32,7 +32,7 @@ export default function Home() {
   useEffect(() => {
     setIsClient(true);
   }, []);
-
+  
   const loadInitialLocalData = () => {
     setTasks(initialTasks);
     setCourses(initialCourses);
@@ -40,33 +40,23 @@ export default function Home() {
   };
   
   useEffect(() => {
-    // This effect handles the entire data loading flow.
     const loadData = async () => {
-      // Don't do anything until Firebase auth is resolved.
-      if (authLoading) {
-        return;
-      }
-      
-      // If there's no user, load local data and finish.
-      if (!user) {
-        loadInitialLocalData();
-        setIsDataLoading(false);
-        return;
-      }
-
-      // If there IS a user but NO access token yet, wait.
-      // This happens on page refresh.
-      if (!accessToken) {
+      // Wait for authentication to resolve and for the access token to be available.
+      if (authLoading || !accessToken) {
+        // If auth is not loading anymore but there's no user, load local data.
+        if (!authLoading && !user) {
+          loadInitialLocalData();
+          setIsDataLoading(false);
+        }
         return;
       }
 
-      // Start the data loading process.
       setIsDataLoading(true);
       setDriveError(null);
 
       try {
         const fileId = await findOrCreateDataFile(accessToken);
-        setDataFileId(fileId); // Important: store the fileId for saving later
+        setDataFileId(fileId); 
         const data = await readDataFile(accessToken, fileId);
         
         if (data && data.tasks && data.courses && data.groups) {
@@ -86,7 +76,6 @@ export default function Home() {
         setDriveError("No se pudieron cargar los datos de Google Drive. Usando datos de ejemplo. Por favor, recarga la página.");
         loadInitialLocalData();
       } finally {
-        // This is crucial: always stop loading, regardless of success or failure.
         setIsDataLoading(false);
       }
     };
@@ -95,24 +84,52 @@ export default function Home() {
   }, [user, accessToken, authLoading]);
 
 
-  const saveDataToDrive = useCallback(async (data: AppData) => {
-    if (!dataFileId || !accessToken) {
-        console.warn("Attempted to save without dataFileId or accessToken.");
-        return;
-    }
-    
-    setIsSaving(true);
-    setDriveError(null);
-    try {
-      await writeDataFile(accessToken, dataFileId, data);
-    } catch (error) {
-      console.error("Error saving data to Drive:", error);
-       setDriveError("No se pudieron guardar los cambios en Google Drive.");
-    } finally {
-      setTimeout(() => setIsSaving(false), 500);
-    }
+  const saveDataToDrive = useCallback(async () => {
+    // We use a function form of setTasks to get the most up-to-date state
+    setTasks(currentTasks => {
+        setCourses(currentCourses => {
+            setGroups(currentGroups => {
+                if (!dataFileId || !accessToken) {
+                    console.warn("Attempted to save without dataFileId or accessToken. Aborting save.");
+                    return currentGroups; // Return current state without saving
+                }
+
+                setIsSaving(true);
+                setDriveError(null);
+                
+                const dataToSave: AppData = {
+                    tasks: currentTasks,
+                    courses: currentCourses,
+                    groups: currentGroups,
+                };
+                
+                writeDataFile(accessToken, dataFileId, dataToSave)
+                    .catch(error => {
+                        console.error("Error saving data to Drive:", error);
+                        setDriveError("No se pudieron guardar los cambios en Google Drive.");
+                    })
+                    .finally(() => {
+                        setTimeout(() => setIsSaving(false), 500);
+                    });
+                
+                return currentGroups;
+            });
+            return currentCourses;
+        });
+        return currentTasks;
+    });
   }, [dataFileId, accessToken]);
   
+  // Effect to save data whenever tasks, courses, or groups change
+  useEffect(() => {
+    // Don't save if data is loading or if there's no data file ID (e.g., logged out)
+    if (isDataLoading || !dataFileId) {
+      return;
+    }
+    saveDataToDrive();
+  }, [tasks, courses, groups, dataFileId, isDataLoading, saveDataToDrive]);
+
+
   const handleTaskDrop = (taskId: string, newStatus: TaskStatus) => {
     let shouldShowConfetti = false;
     let isOverdueAndCompleted = false;
@@ -131,7 +148,7 @@ export default function Home() {
     });
 
     setTasks(updatedTasks);
-    saveDataToDrive({tasks: updatedTasks, courses, groups});
+    // Note: saveDataToDrive is now called by the useEffect hook
 
     if (shouldShowConfetti) {
         setShowConfetti(true);
@@ -139,9 +156,7 @@ export default function Home() {
         
         if (isOverdueAndCompleted) {
             setTimeout(() => {
-              const finalTasks = updatedTasks.filter(t => t.id !== taskId);
-              setTasks(finalTasks);
-              saveDataToDrive({tasks: finalTasks, courses, groups});
+              setTasks(currentTasks => currentTasks.filter(t => t.id !== taskId));
             }, 3000);
         }
     }
@@ -153,43 +168,31 @@ export default function Home() {
       id: `task-${Date.now()}`,
       status: 'No Iniciado',
     };
-    const updatedTasks = [...tasks, taskToAdd];
-    setTasks(updatedTasks);
-    saveDataToDrive({tasks: updatedTasks, courses, groups});
+    setTasks(currentTasks => [...currentTasks, taskToAdd]);
   };
 
   const handleEditTask = (updatedTask: Task) => {
-    const updatedTasks = tasks.map(task => 
-      task.id === updatedTask.id ? updatedTask : task
+    setTasks(currentTasks => 
+      currentTasks.map(task => (task.id === updatedTask.id ? updatedTask : task))
     );
-    setTasks(updatedTasks);
-    saveDataToDrive({tasks: updatedTasks, courses, groups});
   };
 
   const handleDeleteTask = (taskId: string) => {
-    const updatedTasks = tasks.filter(task => task.id !== taskId);
-    setTasks(updatedTasks);
-    saveDataToDrive({tasks: updatedTasks, courses, groups});
+    setTasks(currentTasks => currentTasks.filter(task => task.id !== taskId));
   };
   
   const handleAddGroup = (name: string) => {
     const newGroup: Group = { id: `group-${Date.now()}`, name };
-    const updatedGroups = [...groups, newGroup];
-    setGroups(updatedGroups);
-    saveDataToDrive({tasks, courses, groups: updatedGroups});
+    setGroups(currentGroups => [...currentGroups, newGroup]);
   };
 
   const handleDeleteGroup = (id: string) => {
-    const updatedGroups = groups.filter(g => g.id !== id);
     const coursesToDelete = courses.filter(c => c.groupId === id);
     const courseIdsToDelete = coursesToDelete.map(c => c.id);
-    const updatedCourses = courses.filter(c => c.groupId !== id);
-    const updatedTasks = tasks.filter(t => !courseIdsToDelete.includes(t.courseId));
     
-    setGroups(updatedGroups);
-    setCourses(updatedCourses);
-    setTasks(updatedTasks);
-    saveDataToDrive({tasks: updatedTasks, courses: updatedCourses, groups: updatedGroups});
+    setGroups(currentGroups => currentGroups.filter(g => g.id !== id));
+    setCourses(currentCourses => currentCourses.filter(c => c.groupId !== id));
+    setTasks(currentTasks => currentTasks.filter(t => !courseIdsToDelete.includes(t.courseId)));
 
     if (filter === id) {
       setFilter('all');
@@ -198,17 +201,12 @@ export default function Home() {
 
   const handleAddCourse = (name: string, color: string, groupId: string) => {
     const newCourse: Course = { id: `course-${Date.now()}`, name, color, groupId };
-    const updatedCourses = [...courses, newCourse];
-    setCourses(updatedCourses);
-    saveDataToDrive({tasks, courses: updatedCourses, groups});
+    setCourses(currentCourses => [...currentCourses, newCourse]);
   };
 
   const handleDeleteCourse = (id: string) => {
-    const updatedCourses = courses.filter(c => c.id !== id);
-    const updatedTasks = tasks.filter(t => t.courseId !== id);
-    setCourses(updatedCourses);
-    setTasks(updatedTasks);
-    saveDataToDrive({tasks: updatedTasks, courses: updatedCourses, groups});
+    setCourses(currentCourses => currentCourses.filter(c => c.id !== id));
+    setTasks(currentTasks => currentTasks.filter(t => t.courseId !== id));
   };
   
   const processedTasks = useMemo(() => {
@@ -260,12 +258,12 @@ export default function Home() {
     }
   }, [processedTasks, filter, courses]);
 
-  if (authLoading || isDataLoading) {
+  if (authLoading || (!user && isDataLoading)) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
-            <p className="text-muted-foreground">Cargando tus datos...</p>
+            <p className="text-muted-foreground">Cargando...</p>
         </div>
       </div>
     );
@@ -312,23 +310,34 @@ export default function Home() {
         isSaving={isSaving}
       />
       <main className="flex-1 overflow-x-auto p-4 md:p-6 lg:p-8">
-        {driveError && (
-          <div className="mb-4 rounded-md border border-destructive bg-destructive/10 p-4 text-center text-sm text-destructive-foreground">
-              {driveError}
-          </div>
-        )}
-        {isClient ? (
-          <KanbanBoard 
-            tasks={filteredTasks} 
-            onTaskDrop={handleTaskDrop}
-            courses={courses}
-            groups={groups}
-            onEditTask={handleEditTask}
-            onDeleteTask={handleDeleteTask}
-          />
-        ) : (
-          <KanbanSkeleton />
-        )}
+        {isDataLoading ? (
+            <div className="flex h-full w-full items-center justify-center">
+              <div className="flex flex-col items-center gap-4">
+                  <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                  <p className="text-muted-foreground">Cargando tus datos de Drive...</p>
+              </div>
+            </div>
+          ) : (
+            <>
+            {driveError && (
+              <div className="mb-4 rounded-md border border-destructive bg-destructive/10 p-4 text-center text-sm text-destructive-foreground">
+                  {driveError}
+              </div>
+            )}
+            {isClient ? (
+              <KanbanBoard 
+                tasks={filteredTasks} 
+                onTaskDrop={handleTaskDrop}
+                courses={courses}
+                groups={groups}
+                onEditTask={handleEditTask}
+                onDeleteTask={handleDeleteTask}
+              />
+            ) : (
+              <KanbanSkeleton />
+            )}
+            </>
+          )}
       </main>
     </div>
   );
