@@ -24,13 +24,16 @@ export default function Home() {
   const [isSaving, setIsSaving] = useState(false);
   const [dataFileId, setDataFileId] = useState<string | null>(null);
   const [isDataLoading, setIsDataLoading] = useState(true);
+  const [driveError, setDriveError] = useState<string | null>(null);
 
   useEffect(() => {
     setIsClient(true);
   }, []);
 
   const loadDataFromDrive = useCallback(async (token: string) => {
+    if (!token) return;
     setIsDataLoading(true);
+    setDriveError(null);
     try {
       const fileId = await findOrCreateDataFile(token);
       setDataFileId(fileId);
@@ -39,13 +42,14 @@ export default function Home() {
         setTasks(data.tasks.map(t => ({ ...t, dueDate: t.dueDate ? new Date(t.dueDate) : undefined })));
         setCourses(data.courses);
         setGroups(data.groups);
-      } else { // New user, load initial data
+      } else { // New user or empty file, load initial data
         setTasks(initialTasks);
         setCourses(initialCourses);
         setGroups(initialGroups);
       }
     } catch (error) {
       console.error("Error loading data from Drive:", error);
+      setDriveError("No se pudieron cargar los datos de Google Drive. Por favor, intenta recargar la página.");
       // Fallback to initial data on error
       setTasks(initialTasks);
       setCourses(initialCourses);
@@ -57,7 +61,7 @@ export default function Home() {
   
   useEffect(() => {
     if (user && accessToken) {
-      loadDataFromDrive(accessToken);
+        loadDataFromDrive(accessToken);
     } else if (!authLoading && !user) {
       // If not logged in and not in the process of logging in, stop loading.
       setIsDataLoading(false);
@@ -71,6 +75,7 @@ export default function Home() {
       await writeDataFile(accessToken, dataFileId, data);
     } catch (error) {
       console.error("Error saving data to Drive:", error);
+       setDriveError("No se pudieron guardar los cambios en Google Drive.");
     } finally {
       setIsSaving(false);
     }
@@ -213,7 +218,7 @@ export default function Home() {
     }
   }, [processedTasks, filter, courses]);
 
-  if (authLoading || isDataLoading) {
+  if (authLoading || (user && isDataLoading)) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -260,6 +265,11 @@ export default function Home() {
         isSaving={isSaving}
       />
       <main className="flex-1 overflow-x-auto p-4 md:p-6 lg:p-8">
+        {driveError && (
+          <div className="mb-4 rounded-md border border-destructive bg-destructive/10 p-4 text-center text-sm text-destructive-foreground">
+              {driveError}
+          </div>
+        )}
         {isClient ? (
           <KanbanBoard tasks={filteredTasks} onTaskDrop={handleTaskDrop} />
         ) : (
@@ -269,5 +279,3 @@ export default function Home() {
     </div>
   );
 }
-
-    

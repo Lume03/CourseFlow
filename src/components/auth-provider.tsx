@@ -22,11 +22,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      if (!user) {
+      setLoading(true);
+      if (user) {
+        setUser(user);
+        // We try to get the token silently first
+        user.getIdTokenResult().then(idTokenResult => {
+            const credential = GoogleAuthProvider.credential(idTokenResult.token);
+            // This is a bit of a trick. The access token is not directly available on the user object.
+            // We need to re-authenticate or get it from the sign-in result.
+            // For simplicity in this flow, we will rely on the accessToken set during signIn.
+        }).catch(error => {
+            console.error("Error getting id token:", error)
+        }).finally(() => setLoading(false));
+
+      } else {
+        setUser(null);
         setAccessToken(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
     return () => unsubscribe();
   }, []);
@@ -34,7 +47,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = async () => {
     setLoading(true);
     const provider = new GoogleAuthProvider();
+    // Request access to the user's Google Drive app data folder.
     provider.addScope('https://www.googleapis.com/auth/drive.appdata');
+    // Also request file scope to ensure file searching capabilities
     provider.addScope('https://www.googleapis.com/auth/drive.file');
     
     try {
