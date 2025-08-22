@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { format, parseISO, startOfWeek, endOfWeek, addDays, eachDayOfInterval, isSameDay, isToday, addWeeks, subWeeks, set } from 'date-fns';
+import { format, parseISO, startOfWeek, endOfWeek, addDays, eachDayOfInterval, isSameDay, isToday, addWeeks, subWeeks, getHours, getMinutes, differenceInMinutes } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import type { Task, Course, Group } from '@/lib/types';
@@ -23,6 +23,7 @@ interface CalendarEvent {
   htmlLink: string;
   color?: string;
   isAllDay: boolean;
+  linkedCourseColor?: string;
 }
 
 interface CalendarListItem {
@@ -42,6 +43,11 @@ const stringToPastelColor = (str: string) => {
     return `hsl(${h}, 70%, 85%)`; 
 };
 
+// Find the corresponding course color by matching event title with course names
+const getCourseColorForEvent = (eventSummary: string, courses: Course[]): string | undefined => {
+  const matchingCourse = courses.find(course => eventSummary.toLowerCase().includes(course.name.toLowerCase()));
+  return matchingCourse?.color;
+};
 
 export default function CalendarPage() {
   const { user, accessToken, loading: authLoading } = useAuth();
@@ -65,70 +71,6 @@ export default function CalendarPage() {
 
   const isLoading = authLoading || isCalendarLoading || isTaskDataLoading;
 
-  const fetchCalendarEvents = useCallback(async (token: string, date: Date) => {
-    setIsCalendarLoading(true);
-    setCalendarError(null);
-    try {
-      // 1. Fetch all calendar lists
-      const listRes = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!listRes.ok) {
-        throw new Error('No se pudo obtener la lista de calendarios.');
-      }
-      const calendarList = await listRes.json();
-      const calendars: CalendarListItem[] = calendarList.items;
-
-      const timeMin = startOfWeek(date, { weekStartsOn: 1 }).toISOString();
-      const timeMax = endOfWeek(date, { weekStartsOn: 1 }).toISOString();
-
-      // 2. Fetch events for each calendar
-      const allEventsPromises = calendars.map(cal => {
-        const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=100`;
-        return fetch(url, { headers: { Authorization: `Bearer ${token}` } }).then(async (res) => {
-            if (!res.ok) {
-                console.warn(`Error al cargar eventos para el calendario ${cal.summary}`);
-                return { items: [] }; // Return empty on error for a specific calendar
-            }
-            const result = await res.json();
-            const color = stringToPastelColor(cal.id);
-            // Add color and all-day flag to each event
-            return {
-              ...result,
-              items: result.items.map((event: any) => ({
-                ...event,
-                color,
-                isAllDay: !!event.start.date, // Events with `date` but no `dateTime` are all-day
-              })),
-            };
-        });
-      });
-
-      const allEventsResults = await Promise.all(allEventsPromises);
-      let allEvents = allEventsResults.flatMap(result => result.items || []);
-      
-      // Sort all events by start time
-      allEvents.sort((a, b) => {
-        const aTime = new Date(a.start.dateTime || a.start.date).getTime();
-        const bTime = new Date(b.start.dateTime || b.start.date).getTime();
-        return aTime - bTime;
-      });
-
-      setCalendarEvents(allEvents);
-
-    } catch (err: any) {
-      // Check for specific API not enabled error
-      if (err.message?.includes('API has not been used')) {
-         setCalendarError("La API de Google Calendar no ha sido habilitada en tu proyecto de Google Cloud. Por favor, habilítala y vuelve a intentarlo.");
-      } else {
-         setCalendarError(err.message || 'Error al cargar los eventos del calendario.');
-      }
-      console.error(err);
-    } finally {
-      setIsCalendarLoading(false);
-    }
-  }, []);
-
   const fetchTaskData = useCallback(async (token: string) => {
     setIsTaskDataLoading(true);
     setTaskDataError(null);
@@ -148,6 +90,64 @@ export default function CalendarPage() {
     }
   }, []);
 
+  const fetchCalendarEvents = useCallback(async (token: string, date: Date, localCourses: Course[]) => {
+    setIsCalendarLoading(true);
+    setCalendarError(null);
+    try {
+      const listRes = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!listRes.ok) throw new Error('No se pudo obtener la lista de calendarios.');
+      const calendarList = await listRes.json();
+      const calendars: CalendarListItem[] = calendarList.items;
+
+      const timeMin = startOfWeek(date, { weekStartsOn: 1 }).toISOString();
+      const timeMax = endOfWeek(date, { weekStartsOn: 1 }).toISOString();
+
+      const allEventsPromises = calendars.map(cal => {
+        const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=100`;
+        return fetch(url, { headers: { Authorization: `Bearer ${token}` } }).then(async (res) => {
+            if (!res.ok) {
+                console.warn(`Error al cargar eventos para el calendario ${cal.summary}`);
+                return { items: [] };
+            }
+            const result = await res.json();
+            const defaultColor = stringToPastelColor(cal.id);
+            return {
+              ...result,
+              items: result.items.map((event: any) => ({
+                ...event,
+                color: defaultColor,
+                isAllDay: !!event.start.date,
+                linkedCourseColor: getCourseColorForEvent(event.summary, localCourses)
+              })),
+            };
+        });
+      });
+
+      const allEventsResults = await Promise.all(allEventsPromises);
+      let allEvents = allEventsResults.flatMap(result => result.items || []);
+      
+      allEvents.sort((a, b) => {
+        const aTime = new Date(a.start.dateTime || a.start.date).getTime();
+        const bTime = new Date(b.start.dateTime || b.start.date).getTime();
+        return aTime - bTime;
+      });
+
+      setCalendarEvents(allEvents);
+
+    } catch (err: any) {
+      if (err.message?.includes('API has not been used')) {
+         setCalendarError("La API de Google Calendar no ha sido habilitada en tu proyecto de Google Cloud. Por favor, habilítala y vuelve a intentarlo.");
+      } else {
+         setCalendarError(err.message || 'Error al cargar los eventos del calendario.');
+      }
+      console.error(err);
+    } finally {
+      setIsCalendarLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (authLoading) return;
     if (!accessToken) {
@@ -157,10 +157,20 @@ export default function CalendarPage() {
       return;
     }
     
-    fetchCalendarEvents(accessToken, currentDate);
-    fetchTaskData(accessToken);
+    // Fetch tasks first, then fetch calendar events using the courses data
+    const loadAllData = async () => {
+      await fetchTaskData(accessToken);
+    }
+    loadAllData();
 
-  }, [accessToken, authLoading, currentDate, fetchCalendarEvents, fetchTaskData]);
+  }, [accessToken, authLoading, fetchTaskData]);
+
+  // This effect runs once courses are loaded, or when the date changes
+  useEffect(() => {
+    if (accessToken && courses.length > 0) {
+      fetchCalendarEvents(accessToken, currentDate, courses);
+    }
+  }, [accessToken, currentDate, courses, fetchCalendarEvents]);
   
   const weekDays = useMemo(() => {
       const start = startOfWeek(currentDate, { weekStartsOn: 1 });
@@ -180,49 +190,18 @@ export default function CalendarPage() {
     return filtered.sort((a, b) => (a.dueDate as Date).getTime() - (b.dueDate as Date).getTime());
   }, [tasks, courses, selectedGroup, selectedCourse]);
 
-  const getEventTime = (event: CalendarEvent) => {
-    if (event.start.dateTime) {
-      return format(parseISO(event.start.dateTime), 'h:mm a', { locale: es });
-    }
-    return 'Todo el día';
+  const getTimedEventsForDay = (day: Date) => calendarEvents.filter(event => !event.isAllDay && isSameDay(parseISO(event.start.dateTime), day));
+  const getAllDayEventsAndTasksForDay = (day: Date) => {
+      const gCalAllDay = calendarEvents.filter(event => event.isAllDay && isSameDay(parseISO(event.start.date), day));
+      const localTasks = tasks.filter(task => task.dueDate && isSameDay(task.dueDate, day));
+      return { gCalAllDay, localTasks };
   };
-
-  const getEventsAndTasksForDay = useCallback((day: Date) => {
-      const gCalEvents = calendarEvents
-          .filter(event => isSameDay(parseISO(event.start.dateTime || event.start.date), day))
-          .map(event => ({
-              type: 'gcal',
-              date: parseISO(event.start.dateTime || event.start.date),
-              component: (
-                  <a href={event.htmlLink} target="_blank" rel="noopener noreferrer" key={event.id}>
-                      <div className="p-2 rounded-lg text-black/80 border-l-4" style={{ backgroundColor: event.color, borderColor: 'rgba(0,0,0,0.2)'}}>
-                          <p className="text-xs font-semibold">{getEventTime(event)}</p>
-                          <p className="text-sm">{event.summary}</p>
-                      </div>
-                  </a>
-              )
-          }));
-
-      const localTasks = tasks
-          .filter(task => task.dueDate && isSameDay(task.dueDate, day))
-          .map(task => ({
-              type: 'task',
-              date: task.dueDate!,
-              component: (
-                  <div key={task.id} className="p-2 rounded-lg bg-card border-l-4" style={{borderColor: task.color}}>
-                      <p className="text-xs font-semibold text-muted-foreground">{task.status}</p>
-                      <p className="text-sm font-semibold">{task.title}</p>
-                  </div>
-              )
-          }));
-
-      return [...gCalEvents, ...localTasks].sort((a, b) => a.date.getTime() - b.date.getTime());
-
-  }, [calendarEvents, tasks]);
 
   const handlePrevWeek = () => setCurrentDate(subWeeks(currentDate, 1));
   const handleNextWeek = () => setCurrentDate(addWeeks(currentDate, 1));
   const handleToday = () => setCurrentDate(new Date());
+
+  const hours = Array.from({ length: 24 }, (_, i) => i);
 
 
   if (authLoading || (!user && !calendarError)) {
@@ -295,7 +274,7 @@ export default function CalendarPage() {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 overflow-x-auto">
+        <main className="flex-1 flex flex-col overflow-hidden">
            {isLoading ? (
              <div className="flex h-full items-center justify-center">
                 <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -311,31 +290,90 @@ export default function CalendarPage() {
                 </Card>
              </div>
            ) : (
-            <div className="grid grid-cols-7 h-full divide-x">
-              {weekDays.map(day => {
-                const dayItems = getEventsAndTasksForDay(day);
-                return (
-                  <div key={day.toString()} className="flex flex-col h-full">
-                    <div className={cn(
-                        "p-2 text-center border-b sticky top-0 bg-background/90 backdrop-blur-sm",
-                        isToday(day) && "text-primary font-bold"
-                      )}>
-                        <p className="text-sm uppercase font-semibold">{format(day, 'EEE', { locale: es })}</p>
-                        <p className={cn("text-2xl font-headline", isToday(day) && "text-primary rounded-full")}>{format(day, 'd')}</p>
+             <>
+              <div className="grid grid-cols-[auto,1fr] sticky top-16 bg-background z-10">
+                <div className="w-14"></div>
+                <div className="grid grid-cols-7 border-l">
+                  {weekDays.map(day => (
+                    <div key={day.toString()} className="p-2 text-center border-r">
+                       <p className="text-xs uppercase font-semibold text-muted-foreground">{format(day, 'EEE', { locale: es })}</p>
+                       <p className={cn("text-2xl font-headline", isToday(day) && "text-primary")}>{format(day, 'd')}</p>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-2 space-y-2 bg-secondary/10">
-                        {dayItems.length > 0 ? (
-                           dayItems.map(item => item.component)
-                        ) : (
-                          <div className="h-full flex items-center justify-center">
-                            <GripVertical className="h-6 w-6 text-muted-foreground/20"/>
-                          </div>
-                        )}
-                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                <div className="grid grid-cols-[auto,1fr]">
+                  {/* Time Gutter */}
+                  <div className="w-14 text-right pr-2">
+                    {hours.map(hour => (
+                       <div key={hour} className="h-16 -mt-2.5 pt-2.5 relative">
+                          {hour > 0 && <span className="text-xs text-muted-foreground">{format(new Date(0,0,0,hour), 'h a')}</span>}
+                       </div>
+                    ))}
                   </div>
-                )
-              })}
-            </div>
+
+                  {/* Calendar Grid */}
+                  <div className="grid grid-cols-7 border-l relative">
+                    {/* Grid lines */}
+                    {hours.slice(1).map(hour => (
+                      <div key={hour} className="col-span-7 h-16 border-t" style={{gridRowStart: hour + 1}}></div>
+                    ))}
+                    {weekDays.map((day, dayIndex) => (
+                      <div key={day.toString()} className="border-r relative" style={{ gridColumnStart: dayIndex + 1, gridRowStart: 1, gridRowEnd: 26 }}>
+                         {/* All-day Events and Tasks */}
+                        <div className="sticky top-0 bg-background/80 backdrop-blur-sm z-10 p-1 space-y-1 border-b min-h-[34px]">
+                          {(() => {
+                            const { gCalAllDay, localTasks } = getAllDayEventsAndTasksForDay(day);
+                            return (
+                              <>
+                                {gCalAllDay.map(event => (
+                                  <a href={event.htmlLink} target="_blank" rel="noopener noreferrer" key={event.id}>
+                                    <div className="p-1 rounded text-white text-xs font-semibold" style={{ backgroundColor: event.linkedCourseColor || event.color || '#3174ad' }}>{event.summary}</div>
+                                  </a>
+                                ))}
+                                {localTasks.map(task => (
+                                  <div key={task.id} className="p-1 rounded text-white text-xs font-semibold" style={{ backgroundColor: task.color || '#3174ad' }}>{task.title}</div>
+                                ))}
+                              </>
+                            );
+                          })()}
+                        </div>
+                        
+                        {/* Timed Events */}
+                        {getTimedEventsForDay(day).map(event => {
+                          const start = parseISO(event.start.dateTime);
+                          const end = parseISO(event.end.dateTime);
+                          const startHour = getHours(start) + getMinutes(start) / 60;
+                          const durationMinutes = differenceInMinutes(end, start);
+                          const top = startHour * 4; // 4rem per hour (h-16)
+                          const height = (durationMinutes / 60) * 4;
+                          
+                          return (
+                            <a 
+                              href={event.htmlLink} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              key={event.id}
+                              className="absolute w-full px-1"
+                              style={{ top: `${top}rem`, height: `${height}rem`}}
+                            >
+                               <div 
+                                className="h-full w-full rounded-md p-2 text-white overflow-hidden" 
+                                style={{ backgroundColor: event.linkedCourseColor || event.color || '#3174ad' }}
+                              >
+                                <p className="text-xs font-bold">{event.summary}</p>
+                                <p className="text-[10px]">{format(start, 'h:mm a')} - {format(end, 'h:mm a')}</p>
+                              </div>
+                            </a>
+                          )
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+             </>
            )}
         </main>
       </div>
