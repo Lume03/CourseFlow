@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState, createContext, useContext } from 'react';
-import { onAuthStateChanged, signInWithPopup, signOut, GoogleAuthProvider, getIdTokenResult } from 'firebase/auth';
+import { useEffect, useState, createContext, useContext, useCallback } from 'react';
+import { onAuthStateChanged, signInWithPopup, signOut, GoogleAuthProvider, getAuth, signInWithCredential } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import type { User } from 'firebase/auth';
 
@@ -15,36 +15,57 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const GOOGLE_SCOPES = [
+    'https://www.googleapis.com/auth/drive.appdata',
+    'https://www.googleapis.com/auth/drive.file',
+    'https://www.googleapis.com/auth/calendar.readonly'
+];
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const handleSignOut = useCallback(async () => {
+    try {
+      await signOut(auth);
+      setUser(null);
+      setAccessToken(null);
+    } catch (error) {
+        console.error("Error during sign-out:", error);
+    }
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setLoading(true);
       if (user) {
         setUser(user);
-        // This is key for page reloads:
-        // We need to explicitly get the access token, as it's not persisted by default.
         try {
-          const idTokenResult = await getIdTokenResult(user, true); // Force refresh
-           // The access token is now nested inside claims in recent versions
-          const providerData = idTokenResult.claims.firebase.identities['google.com'];
-          if (providerData && Array.isArray(providerData) && providerData.length > 0) {
-            // Re-authenticate silently to get a fresh credential and access token
-             const provider = new GoogleAuthProvider();
-             provider.addScope('https://www.googleapis.com/auth/drive.appdata');
-             provider.addScope('https://www.googleapis.com/auth/drive.file');
-             const result = await signInWithPopup(auth, provider);
-             const credential = GoogleAuthProvider.credentialFromResult(result);
-              if (credential?.accessToken) {
-                setAccessToken(credential.accessToken);
-              }
+          // Force refresh the token to get a fresh one with all grants.
+          const result = await user.getIdTokenResult(true);
+          // With Google as IdP, the access token is in the claims.
+          // This might be brittle, but it's a common pattern for getting the OAuth token.
+          // In a real app, you might want to handle the OAuth flow more explicitly.
+          // However, for this to work on refresh, we must re-trigger the OAuth flow
+          // if scopes are missing. A simple way is to re-prompt.
+          const provider = new GoogleAuthProvider();
+          GOOGLE_SCOPES.forEach(scope => provider.addScope(scope));
+
+          // This will re-authenticate silently if possible, or prompt if new scopes need approval.
+          // A better UX might involve asking the user first.
+          const signInResult = await signInWithPopup(auth, provider);
+          const credential = GoogleAuthProvider.credentialFromResult(signInResult);
+          if (credential?.accessToken) {
+            setAccessToken(credential.accessToken);
+          } else {
+             // If we lose the access token, sign out to be safe
+             await handleSignOut();
           }
         } catch (error) {
-           console.error("Error refreshing token on reload:", error);
-           setAccessToken(null); // Ensure we don't use a stale token
+           console.error("Error refreshing token or getting access token:", error);
+           // If there's an error getting the token, treat as signed out
+           await handleSignOut();
         }
       } else {
         setUser(null);
@@ -53,13 +74,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
     return () => unsubscribe();
-  }, []);
+  }, [handleSignOut]);
 
   const signIn = async () => {
     setLoading(true);
     const provider = new GoogleAuthProvider();
-    provider.addScope('https://www.googleapis.com/auth/drive.appdata');
-    provider.addScope('https://www.googleapis.com/auth/drive.file');
+    GOOGLE_SCOPES.forEach(scope => provider.addScope(scope));
     
     try {
       const result = await signInWithPopup(auth, provider);
@@ -75,15 +95,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const handleSignOut = async () => {
-    try {
-      await signOut(auth);
-      setUser(null);
-      setAccessToken(null);
-    } catch (error) {
-        console.error("Error during sign-out:", error);
-    }
-  };
 
   const value = {
     user,

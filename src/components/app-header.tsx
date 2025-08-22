@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { AddTaskDialog } from './add-task-dialog';
 import { ManageDataSheet } from './manage-data-sheet';
 import { useAuth } from './auth-provider';
+import Link from 'next/link';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ListFilter, LogOut, Loader2 } from 'lucide-react';
+import { ListFilter, LogOut, Loader2, CalendarDays } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 
 
@@ -82,9 +83,9 @@ export default function AppHeader({
          {isSaving && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
          <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="w-[180px] justify-start">
-              <ListFilter className="mr-2 h-4 w-4" />
-              <span>{getFilterLabel()}</span>
+            <Button variant="outline" className="w-auto justify-start md:w-[180px]">
+              <ListFilter className="mr-0 md:mr-2 h-4 w-4" />
+              <span className="hidden md:inline">{getFilterLabel()}</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-56">
@@ -136,6 +137,15 @@ export default function AppHeader({
                     </p>
                 </div>
                 </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuItem asChild>
+                    <Link href="/calendar">
+                        <CalendarDays className="mr-2 h-4 w-4" />
+                        <span>Mi Calendario</span>
+                    </Link>
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => signOut()}>
                     <LogOut className="mr-2 h-4 w-4" />
