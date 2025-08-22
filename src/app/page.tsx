@@ -123,13 +123,6 @@ export default function Home() {
     if (newStatus === 'Terminado' && taskToMove.status !== 'Terminado') {
       setShowConfetti(true);
       setTimeout(() => setShowConfetti(false), 4000);
-  
-      // Auto-remove if task has no due date
-      if (!taskToMove.dueDate) {
-        setTimeout(() => {
-          setTasks(prevTasks => prevTasks.filter(t => t.id !== taskId));
-        }, 3000);
-      }
     }
   };
   
@@ -198,13 +191,15 @@ export default function Home() {
 
 
   const filteredTasks = useMemo(() => {
-    // We filter out tasks that are completed and their due date is more than a day ago
     const now = new Date();
     const yesterday = subDays(now, 1);
     
     const tasksToShow = processedTasks.filter(task => {
-      if (task.status === 'Terminado' && task.dueDate && isBefore(task.dueDate, yesterday)) {
-        return false;
+      if (task.status === 'Terminado') {
+        // Hide tasks without a due date that are completed.
+        if (!task.dueDate) return false;
+        // Hide tasks with a due date that was before yesterday.
+        if (isBefore(task.dueDate, yesterday)) return false;
       }
       return true;
     });
@@ -320,5 +315,3 @@ export default function Home() {
     </div>
   );
 }
-
-    
