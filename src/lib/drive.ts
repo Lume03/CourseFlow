@@ -8,13 +8,16 @@ const DRIVE_API_URL = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3';
 
 async function findFile(accessToken: string): Promise<string | null> {
-  const res = await fetch(`${DRIVE_API_URL}/files?q=name='${FILE_NAME}' and 'appDataFolder' in parents&spaces=appDataFolder&fields=files(id)`, {
+  const res = await fetch(`${DRIVE_API_URL}/files?q=name='${FILE_NAME}'&spaces=appDataFolder&fields=files(id)`, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
   });
 
   if (!res.ok) {
+    // Log the actual error for better debugging
+    const errorBody = await res.text();
+    console.error("Google Drive API Error:", res.status, errorBody);
     throw new Error('Failed to search for file in Google Drive');
   }
 
@@ -55,6 +58,8 @@ export async function findOrCreateDataFile(accessToken: string): Promise<string>
   });
 
   if (!res.ok) {
+    const errorBody = await res.text();
+    console.error("Google Drive API Error (Create):", res.status, errorBody);
     throw new Error('Failed to create file in Google Drive');
   }
 
@@ -73,6 +78,8 @@ export async function readDataFile(accessToken: string, fileId: string): Promise
 
     if (!res.ok) {
         if (res.status === 404) return null; // File not found is a valid case
+        const errorBody = await res.text();
+        console.error("Google Drive API Error (Read):", res.status, errorBody);
         throw new Error(`Failed to read file from Google Drive. Status: ${res.status}`);
     }
 
@@ -86,7 +93,7 @@ export async function readDataFile(accessToken: string, fileId: string): Promise
 export async function writeDataFile(accessToken: string, fileId: string, data: AppData) {
     const content = JSON.stringify(data);
 
-    await fetch(`${DRIVE_UPLOAD_URL}/files/${fileId}?uploadType=media`, {
+    const res = await fetch(`${DRIVE_UPLOAD_URL}/files/${fileId}?uploadType=media`, {
         method: 'PATCH',
         headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -94,4 +101,11 @@ export async function writeDataFile(accessToken: string, fileId: string, data: A
         },
         body: content,
     });
+
+    if (!res.ok) {
+        const errorBody = await res.text();
+        console.error("Google Drive API Error (Write):", res.status, errorBody);
+        // We can throw an error here to be caught by the calling function
+        throw new Error('Failed to write data to Google Drive');
+    }
 }

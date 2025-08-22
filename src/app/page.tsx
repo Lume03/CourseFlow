@@ -30,53 +30,53 @@ export default function Home() {
     setIsClient(true);
   }, []);
 
+  const loadDataFromDrive = useCallback(async (token: string) => {
+    setIsDataLoading(true);
+    setDriveError(null);
+    try {
+      const fileId = await findOrCreateDataFile(token);
+      setDataFileId(fileId);
+      const data = await readDataFile(token, fileId);
+      if (data && data.tasks && data.courses && data.groups) {
+         // Ensure due dates are converted back to Date objects
+         setTasks(data.tasks.map(t => ({ ...t, dueDate: t.dueDate ? new Date(t.dueDate) : undefined })));
+         setCourses(data.courses);
+         setGroups(data.groups);
+      } else {
+        // File is new or empty, use initial data. This will be saved on the first change.
+        setTasks(initialTasks);
+        setCourses(initialCourses);
+        setGroups(initialGroups);
+      }
+    } catch (error) {
+      console.error("Error loading data from Drive:", error);
+      setDriveError("No se pudieron cargar los datos de Google Drive. Usando datos de ejemplo.");
+      // Fallback to initial data on error
+      setTasks(initialTasks);
+      setCourses(initialCourses);
+      setGroups(initialGroups);
+    } finally {
+        setIsDataLoading(false);
+    }
+  }, []);
+  
   useEffect(() => {
     // This effect handles the initial data loading sequence.
     if (authLoading) {
-      // If auth state is still being determined, do nothing and wait.
-      // The loading screen will be shown.
+      // Auth state is being determined, show loading screen.
       setIsDataLoading(true);
       return;
     }
 
     if (user && accessToken) {
       // User is logged in and we have a token, start loading data from Drive.
-      const loadData = async () => {
-        setIsDataLoading(true);
-        setDriveError(null);
-        try {
-          const fileId = await findOrCreateDataFile(accessToken);
-          setDataFileId(fileId);
-          const data = await readDataFile(accessToken, fileId);
-          if (data && data.tasks && data.courses && data.groups) {
-             setTasks(data.tasks.map(t => ({ ...t, dueDate: t.dueDate ? new Date(t.dueDate) : undefined })));
-             setCourses(data.courses);
-             setGroups(data.groups);
-          } else {
-            // File is new or empty, use initial data.
-            // This will also be saved back to Drive if any changes are made.
-            setTasks(initialTasks);
-            setCourses(initialCourses);
-            setGroups(initialGroups);
-          }
-        } catch (error) {
-          console.error("Error loading data from Drive:", error);
-          setDriveError("No se pudieron cargar los datos de Google Drive. Usando datos de ejemplo.");
-          // Fallback to initial data on error
-          setTasks(initialTasks);
-          setCourses(initialCourses);
-          setGroups(initialGroups);
-        } finally {
-            setIsDataLoading(false);
-        }
-      };
-      loadData();
-    } else if (!user) {
-      // User is not logged in, stop the loading process.
+      loadDataFromDrive(accessToken);
+    } else {
+       // User is not logged in, stop the loading process and show the login page.
       setIsDataLoading(false);
     }
-     // Key dependencies: user and accessToken will trigger this when they become available.
-  }, [user, accessToken, authLoading]);
+     // Key dependencies: user, accessToken, authLoading will trigger this when they change.
+  }, [user, accessToken, authLoading, loadDataFromDrive]);
 
 
   const saveDataToDrive = useCallback(async (data: AppData) => {
@@ -230,7 +230,7 @@ export default function Home() {
     }
   }, [processedTasks, filter, courses]);
 
-  if (authLoading || (user && isDataLoading)) {
+  if (authLoading || isDataLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
