@@ -82,9 +82,9 @@ export default function AppHeader({
          {isSaving && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
          <DropdownMenu>
           <DropdownMenuTrigger asChild>
-             <Button variant="outline" size="icon" className="md:w-[180px] md:justify-start">
-              <ListFilter className="mr-0 md:mr-2 h-4 w-4" />
-              <span className="hidden md:inline">{getFilterLabel()}</span>
+            <Button variant="outline" className="w-[180px] justify-start">
+              <ListFilter className="mr-2 h-4 w-4" />
+              <span>{getFilterLabel()}</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-56">
