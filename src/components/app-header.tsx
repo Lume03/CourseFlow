@@ -2,6 +2,7 @@ import type { FilterType, Course, Group, Task } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { AddTaskDialog } from './add-task-dialog';
 import { ManageDataSheet } from './manage-data-sheet';
+import { Separator } from './ui/separator';
 
 interface AppHeaderProps {
   filter: FilterType;
@@ -26,7 +27,7 @@ export default function AppHeader({
   onAddCourse,
   onDeleteCourse
 }: AppHeaderProps) {
-  const filters: { value: FilterType; label: string }[] = [
+  const timeFilters: { value: FilterType; label: string }[] = [
     { value: 'this-week', label: 'Esta semana' },
     { value: 'this-month', label: 'Este mes' },
     { value: 'all', label: 'Todas las tareas' },
@@ -54,7 +55,7 @@ export default function AppHeader({
       </div>
       <div className="ml-auto flex items-center gap-2">
         <div className="hidden sm:flex items-center gap-2 rounded-lg bg-muted p-1">
-          {filters.map((f) => (
+          {timeFilters.map((f) => (
             <Button
               key={f.value}
               variant={filter === f.value ? 'default' : 'ghost'}
@@ -63,6 +64,18 @@ export default function AppHeader({
               className={filter === f.value ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground'}
             >
               {f.label}
+            </Button>
+          ))}
+          <Separator orientation="vertical" className="h-6 mx-1" />
+           {groups.map((g) => (
+            <Button
+              key={g.id}
+              variant={filter === g.id ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setFilter(g.id)}
+              className={filter === g.id ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground'}
+            >
+              {g.name}
             </Button>
           ))}
         </div>

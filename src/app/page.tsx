@@ -53,6 +53,10 @@ export default function Home() {
     const courseIdsToDelete = coursesToDelete.map(c => c.id);
     setCourses(prev => prev.filter(c => c.groupId !== id));
     setTasks(prev => prev.filter(t => !courseIdsToDelete.includes(t.courseId)));
+    // If the active filter was this group, reset to 'all'
+    if (filter === id) {
+      setFilter('all');
+    }
   };
 
   const handleAddCourse = (name: string, color: string, groupId: string) => {
@@ -68,6 +72,8 @@ export default function Home() {
 
   const filteredTasks = useMemo(() => {
     const now = new Date();
+    let filtered = tasks;
+
     switch (filter) {
       case 'this-week':
         const startOfThisWeek = startOfWeek(now, { weekStartsOn: 1 });
@@ -88,10 +94,13 @@ export default function Home() {
             task.dueDate <= endOfThisMonth
         );
       case 'all':
-      default:
         return tasks;
+      default:
+        // This handles group filtering, where filter is a groupId
+        const groupCourses = courses.filter(c => c.groupId === filter).map(c => c.id);
+        return tasks.filter(task => groupCourses.includes(task.courseId));
     }
-  }, [tasks, filter]);
+  }, [tasks, filter, courses]);
 
   return (
     <div className="flex h-screen w-full flex-col bg-background">

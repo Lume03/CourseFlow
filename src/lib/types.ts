@@ -22,4 +22,4 @@ export interface Group {
     name: string;
 }
 
-export type FilterType = 'this-week' | 'this-month' | 'all';
+export type FilterType = string;
