@@ -69,31 +69,23 @@ export default function Home() {
 
   useEffect(() => {
     if (authLoading) {
-      // Still waiting for Firebase to tell us if user is logged in
       return;
     }
     if (user && accessToken) {
-      // User is logged in and we have the Google token, load data
       loadDataFromDrive(accessToken);
     } else if (!user) {
-      // User is not logged in, load local data and finish loading
       loadInitialLocalData();
       setIsDataLoading(false);
     }
-    // The case where user exists but accessToken is null is handled by AuthProvider
-    // which will fetch the token and trigger a re-render.
   }, [user, accessToken, authLoading, loadDataFromDrive, loadInitialLocalData]);
 
 
   const saveDataToDrive = useCallback(async (dataToSave: AppData) => {
     if (!dataFileId || !accessToken) {
-      console.warn("Attempted to save without dataFileId or accessToken. Aborting save.");
       return;
     }
-
     setIsSaving(true);
     setDriveError(null);
-    
     try {
         await writeDataFile(accessToken, dataFileId, dataToSave);
     } catch (error) {
@@ -106,7 +98,6 @@ export default function Home() {
   
   useEffect(() => {
     if (isDataLoading || !dataFileId || !user) {
-      // Don't save while loading, if there's no fileId, or if logged out.
       return;
     }
     const dataToSave = { tasks, courses, groups };
@@ -115,37 +106,28 @@ export default function Home() {
 
 
   const handleTaskDrop = (taskId: string, newStatus: TaskStatus) => {
-    let shouldShowConfetti = false;
-    let taskToRemoveId: string | null = null;
-  
-    setTasks(currentTasks => {
-      const updatedTasks = currentTasks.map(task => {
-        if (task.id === taskId) {
-          if (newStatus === 'Terminado' && task.status !== 'Terminado') {
-            shouldShowConfetti = true;
-            // Check if task is overdue OR has no due date to remove it
-            if ((task.dueDate && isBefore(new Date(task.dueDate), new Date())) || !task.dueDate) {
-              taskToRemoveId = taskId;
-            }
-          }
-          return { ...task, status: newStatus };
-        }
-        return task;
-      });
-  
-      if (shouldShowConfetti) {
-        setShowConfetti(true);
-        setTimeout(() => setShowConfetti(false), 4000);
-        
-        if (taskToRemoveId) {
-          setTimeout(() => {
-            setTasks(prevTasks => prevTasks.filter(t => t.id !== taskToRemoveId));
-          }, 3000);
-        }
+    const taskToMove = tasks.find(t => t.id === taskId);
+    if (!taskToMove) return;
+
+    // Update the task status
+    const updatedTasks = tasks.map(task => 
+      task.id === taskId ? { ...task, status: newStatus } : task
+    );
+    setTasks(updatedTasks);
+
+    // Check for confetti and auto-removal
+    if (newStatus === 'Terminado' && taskToMove.status !== 'Terminado') {
+      setShowConfetti(true);
+      setTimeout(() => setShowConfetti(false), 4000);
+      
+      // Auto-remove if task is overdue OR has no due date
+      const isOverdue = taskToMove.dueDate && isBefore(new Date(taskToMove.dueDate), subDays(new Date(), 1));
+      if (!taskToMove.dueDate || isOverdue) {
+        setTimeout(() => {
+          setTasks(prevTasks => prevTasks.filter(t => t.id !== taskId));
+        }, 3000);
       }
-  
-      return updatedTasks;
-    });
+    }
   };
   
   const handleAddTask = (newTask: Omit<Task, 'id' | 'status'>) => {
@@ -213,10 +195,16 @@ export default function Home() {
 
 
   const filteredTasks = useMemo(() => {
+    // We filter out tasks that are completed and their due date is more than a day ago
     const now = new Date();
-    // This logic to hide completed & overdue tasks is now handled by the auto-removal
-    // in handleTaskDrop, so we can simplify this part.
-    const tasksToShow = processedTasks;
+    const yesterday = subDays(now, 1);
+    
+    const tasksToShow = processedTasks.filter(task => {
+      if (task.status === 'Terminado' && task.dueDate && isBefore(task.dueDate, yesterday)) {
+        return false;
+      }
+      return true;
+    });
 
     switch (filter) {
       case 'this-week':
@@ -293,11 +281,11 @@ export default function Home() {
         onAddGroup={handleAddGroup}
         onDeleteGroup={handleDeleteGroup}
         onAddCourse={handleAddCourse}
-        onDeleteCourse={handleDeleteCourse}
+        onDeleteCourse={onDeleteCourse}
         isSaving={isSaving}
       />
       <main className="flex-1 overflow-x-auto p-4 md:p-6 lg:p-8">
-        {isDataLoading ? (
+        {authLoading || isDataLoading ? (
             <div className="flex h-full w-full items-center justify-center">
               <div className="flex flex-col items-center gap-4">
                   <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -329,3 +317,5 @@ export default function Home() {
     </div>
   );
 }
+
+    
