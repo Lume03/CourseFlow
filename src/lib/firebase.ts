@@ -6,12 +6,13 @@ import { getAuth } from "firebase/auth";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "TODO: Add your api key",
-  authDomain: "TODO: Add your auth domain",
-  projectId: "TODO: Add your project id",
-  storageBucket: "TODO: Add your storage bucket",
-  messagingSenderId: "TODO: Add your messaging sender id",
-  appId: "TODO: Add your app id"
+  "projectId": "courseflow-kanban",
+  "appId": "1:938316218760:web:b141c374690b1af664fa3d",
+  "storageBucket": "courseflow-kanban.firebasestorage.app",
+  "apiKey": "AIzaSyAYSJyLOErkHtx8ingh-ZbA_Ts6WJzcJlc",
+  "authDomain": "courseflow-kanban.firebaseapp.com",
+  "measurementId": "",
+  "messagingSenderId": "938316218760"
 };
 
 // Initialize Firebase
