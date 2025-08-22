@@ -37,6 +37,7 @@ export default function Home() {
     setTasks(initialTasks);
     setCourses(initialCourses);
     setGroups(initialGroups);
+    setIsDataLoading(false);
   }, []);
 
   const loadDataFromDrive = useCallback(async (token: string) => {
@@ -69,19 +70,24 @@ export default function Home() {
 
   useEffect(() => {
     if (authLoading) {
+      setIsDataLoading(true);
       return;
     }
+  
     if (user && accessToken) {
       loadDataFromDrive(accessToken);
     } else if (!user) {
       loadInitialLocalData();
-      setIsDataLoading(false);
     }
   }, [user, accessToken, authLoading, loadDataFromDrive, loadInitialLocalData]);
 
 
   const saveDataToDrive = useCallback(async (dataToSave: AppData) => {
-    if (!dataFileId || !accessToken) {
+    if (!dataFileId || !accessToken || !user) {
+      // Don't show an error for guests, just don't save.
+      if (user) {
+          console.warn("Cannot save data: missing fileId or accessToken.");
+      }
       return;
     }
     setIsSaving(true);
@@ -94,35 +100,32 @@ export default function Home() {
     } finally {
         setTimeout(() => setIsSaving(false), 500);
     }
-  }, [dataFileId, accessToken]);
+  }, [dataFileId, accessToken, user]);
   
   useEffect(() => {
-    if (isDataLoading || !dataFileId || !user) {
+    if (isDataLoading || !user) {
       return;
     }
     const dataToSave = { tasks, courses, groups };
     saveDataToDrive(dataToSave);
-  }, [tasks, courses, groups, dataFileId, isDataLoading, saveDataToDrive, user]);
+  }, [tasks, courses, groups, isDataLoading, saveDataToDrive, user]);
 
 
   const handleTaskDrop = (taskId: string, newStatus: TaskStatus) => {
     const taskToMove = tasks.find(t => t.id === taskId);
     if (!taskToMove) return;
-
-    // Update the task status
+  
     const updatedTasks = tasks.map(task => 
       task.id === taskId ? { ...task, status: newStatus } : task
     );
     setTasks(updatedTasks);
-
-    // Check for confetti and auto-removal
+  
     if (newStatus === 'Terminado' && taskToMove.status !== 'Terminado') {
       setShowConfetti(true);
       setTimeout(() => setShowConfetti(false), 4000);
-      
-      // Auto-remove if task is overdue OR has no due date
-      const isOverdue = taskToMove.dueDate && isBefore(new Date(taskToMove.dueDate), subDays(new Date(), 1));
-      if (!taskToMove.dueDate || isOverdue) {
+  
+      // Auto-remove if task has no due date
+      if (!taskToMove.dueDate) {
         setTimeout(() => {
           setTasks(prevTasks => prevTasks.filter(t => t.id !== taskId));
         }, 3000);
@@ -233,7 +236,7 @@ export default function Home() {
     }
   }, [processedTasks, filter, courses]);
 
-  if (authLoading) {
+  if (authLoading && !user) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -281,11 +284,11 @@ export default function Home() {
         onAddGroup={handleAddGroup}
         onDeleteGroup={handleDeleteGroup}
         onAddCourse={handleAddCourse}
-        onDeleteCourse={onDeleteCourse}
+        onDeleteCourse={handleDeleteCourse}
         isSaving={isSaving}
       />
       <main className="flex-1 overflow-x-auto p-4 md:p-6 lg:p-8">
-        {authLoading || isDataLoading ? (
+        {isDataLoading ? (
             <div className="flex h-full w-full items-center justify-center">
               <div className="flex flex-col items-center gap-4">
                   <Loader2 className="h-12 w-12 animate-spin text-primary" />
