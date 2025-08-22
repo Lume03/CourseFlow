@@ -69,14 +69,14 @@ export default function AppHeader({
           <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
           <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
         </svg>
-        <h1 className="text-lg font-semibold font-headline text-foreground">CourseFlow Kanban</h1>
+        <h1 className="text-lg font-semibold font-headline text-foreground hidden md:block">CourseFlow Kanban</h1>
       </div>
       <div className="ml-auto flex items-center gap-2">
          <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline">
-              <ListFilter className="mr-2 h-4 w-4" />
-              {getFilterLabel()}
+            <Button variant="outline" className="md:w-[180px] justify-start">
+              <ListFilter className="mr-0 md:mr-2 h-4 w-4" />
+              <span className="hidden md:inline">{getFilterLabel()}</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-56">

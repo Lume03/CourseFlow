@@ -133,9 +133,9 @@ export function AddTaskDialog({ onAddTask, courses, groups }: AddTaskDialogProps
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>
-          <PlusCircle className="mr-2 h-4 w-4" />
-          Añadir Tarea
+        <Button size="icon" className="md:w-auto md:px-4">
+          <PlusCircle className="mr-0 md:mr-2 h-4 w-4" />
+          <span className="hidden md:inline">Añadir Tarea</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[480px]">
