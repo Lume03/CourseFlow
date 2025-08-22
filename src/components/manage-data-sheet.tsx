@@ -52,7 +52,7 @@ import {
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { Group, Course } from '@/lib/types';
-import { Settings, PlusCircle, Trash2, Palette } from 'lucide-react';
+import { Settings, PlusCircle, Trash2, Palette, RefreshCw } from 'lucide-react';
 
 interface ManageDataSheetProps {
   groups: Group[];
@@ -102,6 +102,21 @@ export function ManageDataSheet({
   function onCourseSubmit(values: z.infer<typeof addCourseSchema>) {
     onAddCourse(values.name, values.color, values.groupId);
     courseForm.reset();
+    courseForm.setValue('color', PRESET_COLORS[0]);
+  }
+  
+  const generateRandomPastelColor = () => {
+    const randomPastel = () => Math.floor(Math.random() * 56 + 200); // from 200 to 255
+    const r = randomPastel();
+    const g = randomPastel();
+    const b = randomPastel();
+    const toHex = (c: number) => ('0' + c.toString(16)).slice(-2);
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  };
+
+  const handleRandomColor = () => {
+    const randomColor = generateRandomPastelColor();
+    courseForm.setValue('color', randomColor, { shouldValidate: true });
   }
 
   return (
@@ -273,7 +288,13 @@ export function ManageDataSheet({
                       name="color"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="flex items-center gap-2"><Palette/> Color</FormLabel>
+                           <div className="flex items-center justify-between">
+                            <FormLabel className="flex items-center gap-2"><Palette/> Color</FormLabel>
+                            <Button type="button" variant="ghost" size="sm" onClick={handleRandomColor}>
+                              <RefreshCw className="h-3 w-3 mr-2"/>
+                              Generar
+                            </Button>
+                          </div>
                           <FormControl>
                              <div>
                                <div className="flex flex-wrap gap-2 mb-2">
