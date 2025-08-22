@@ -189,7 +189,7 @@ export function AddTaskDialog({ onAddTask, courses, groups }: AddTaskDialogProps
                 control={form.control}
                 name="dueDate"
                 render={({ field }) => (
-                  <FormItem className="flex flex-col">
+                  <FormItem>
                     <FormLabel>Fecha Límite</FormLabel>
                     <Popover>
                       <PopoverTrigger asChild>
